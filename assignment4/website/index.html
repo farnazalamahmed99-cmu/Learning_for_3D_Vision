@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>16-825 Assignment 4</title>
+<script>
+  window.MathJax = { tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] } };
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-chtml.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d1d9e0;
+    --panel: #f6f8fa; --accent: #0969da; --pass: #1a7f37; --code-bg: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #3d444d;
+      --panel: #151b23; --accent: #4493f8; --pass: #3fb950; --code-bg: #151b23;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 2rem; margin: 0 0 4px; }
+  h2 { font-size: 1.5rem; margin: 48px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; margin: 32px 0 8px; }
+  h4 { font-size: 1rem; margin: 20px 0 6px; }
+  p, li { max-width: 75ch; }
+  a { color: var(--accent); }
+  .subtitle { color: var(--muted); margin: 0; }
+  nav { margin: 20px 0 0; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  nav ul { margin: 4px 0 0; padding-left: 20px; }
+  code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em;
+         background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+        padding: 12px 14px; overflow-x: auto; font-size: 0.85rem; line-height: 1.45; }
+  pre code { background: none; padding: 0; }
+  figure { margin: 16px 0; }
+  figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; }
+  figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 6px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .missing { border: 2px dashed var(--border); border-radius: 6px; padding: 32px 12px; text-align: center;
+             color: var(--muted); font-size: 0.9rem; background: var(--panel); }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; margin: 8px 0 16px; }
+  th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; white-space: nowrap; }
+  tbody th + td { white-space: normal; }
+  th { background: var(--panel); }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .pass { color: var(--pass); font-weight: 600; }
+  .todo { color: var(--muted); font-style: italic; }
+  details { margin: 8px 0; }
+  summary { cursor: pointer; color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>16-825 Assignment 4: Multi-View Transformers</h1>
+<p class="subtitle">Farnaz Alam Ahmed</p>
+
+<nav>
+  <strong>Contents</strong>
+  <ul>
+    <li><a href="#part1">1. Multi-View Data Preprocessing</a>
+      <ul>
+        <li><a href="#unprojection">1.2 Depth unprojection</a></li>
+        <li><a href="#canonicalization">1.3 Canonicalization</a></li>
+        <li><a href="#check">1.7 Final data check</a></li>
+        <li><a href="#explanations">Explanations</a></li>
+      </ul>
+    </li>
+    <li><a href="#part2">2. Novel-View Synthesis with Mini-LVSM</a>
+      <ul>
+        <li><a href="#q21">2.1 Overfitting</a></li>
+        <li><a href="#q22">2.2 Training and evaluation</a></li>
+        <li><a href="#q23">2.3 Bonus: training view count</a></li>
+      </ul>
+    </li>
+    <li><a href="#part3">3. Multi-View Geometry with Mini-VGGT</a>
+      <ul>
+        <li><a href="#q31">3.1 Overfitting</a></li>
+        <li><a href="#q32">3.2 Training and evaluation</a></li>
+        <li><a href="#q33">3.3 Bonus: number of input views</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+
+<!-- ============================== PART 1 ============================== -->
+<h2 id="part1">1. Multi-View Data Preprocessing (20 points)</h2>
+<p>
+  Each training sample is built from 8 views of one ScanNet++ scene. Each view is a 400×300 RGB image with depth.
+  It is center-cropped to 300×300 and resized to 224×224 (Q1.1). The depth is unprojected to 3D points (Q1.2).
+  Everything is expressed in the first camera's frame and normalized in scale (Q1.3).
+  Finally, a ray (Q1.4) and its Plücker coordinates (Q1.5) are computed for every pixel.
+</p>
+
+<h3 id="unprojection">1.2 Depth unprojection (original world frame, meters)</h3>
+<p>
+  Each pixel \((u, v)\) with z-depth \(Z\) is unprojected as
+  \(\mathbf{X}_\text{world} = R\,(Z\,K^{-1}[u, v, 1]^\top) + \mathbf{t}\),
+  using the resized intrinsics and the camera-to-world pose.
+  Points from all 8 views fuse into a single consistent scene, and each camera frustum sits where its view was captured.
+</p>
+<div class="grid">
+  <figure>
+    <img src="images/part1_unprojection_1.png" alt="Unprojected points and cameras, bedroom scene"
+         onerror="this.outerHTML='<div class=missing>Add screenshot: images/part1_unprojection_1.png</div>'">
+    <figcaption>Scene <code>079a326597</code> (bedroom): points and cameras in the original world frame (m).</figcaption>
+  </figure>
+  <figure>
+    <img src="images/part1_unprojection_2.png" alt="Unprojected points and cameras, office scene"
+         onerror="this.outerHTML='<div class=missing>Add screenshot: images/part1_unprojection_2.png</div>'">
+    <figcaption>Scene <code>07ff1c45bb</code> (office): points and cameras in the original world frame (m).</figcaption>
+  </figure>
+</div>
+
+<h3 id="canonicalization">1.3 Canonicalized geometry (first-camera frame, normalized units)</h3>
+<p>
+  After canonicalization, camera 0 is the identity, so its center is at the origin.
+  The valid-point centroid lies exactly 1 unit from it.
+  In the screenshots below, the <strong>red diamond</strong> marks the first camera center and the <strong>yellow diamond</strong> marks the valid-point centroid.
+  The black line between them is labeled with the centroid distance, and the highlighted box on the right repeats both values from the visualization page.
+  The point cloud is slightly faded so that the markers stay visible.
+</p>
+<div class="grid">
+  <figure>
+    <img src="images/part1_canonicalization_1.png" alt="Canonicalized points and cameras, bedroom scene"
+         onerror="this.outerHTML='<div class=missing>Add screenshot: images/part1_canonicalization_1.png</div>'">
+    <figcaption>Scene <code>079a326597</code> (bedroom): first camera center (0.000, 0.000, 0.000); valid-point centroid distance 1.000; scene scale 2.080 m.</figcaption>
+  </figure>
+  <figure>
+    <img src="images/part1_canonicalization_2.png" alt="Canonicalized points and cameras, office scene"
+         onerror="this.outerHTML='<div class=missing>Add screenshot: images/part1_canonicalization_2.png</div>'">
+    <figcaption>Scene <code>07ff1c45bb</code> (office): first camera center (0.000, 0.000, 0.000); valid-point centroid distance 1.000; scene scale 1.966 m.</figcaption>
+  </figure>
+</div>
+
+<h4>Canonicalization summary for the 5 visualized scenes</h4>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Sample</th><th>First camera center (X, Y, Z)</th><th>Valid-point centroid distance</th><th>Scene scale (m)</th></tr></thead>
+  <tbody>
+    <tr><td><code>036bce3393_frame_004470</code></td><td>(0.0000, 0.0000, 0.0000)</td><td class="num">1.000</td><td class="num">1.867</td></tr>
+    <tr><td><code>076c822ecc_frame_002890</code></td><td>(0.0000, 0.0000, 0.0000)</td><td class="num">1.000</td><td class="num">2.830</td></tr>
+    <tr><td><code>079a326597_frame_007430</code></td><td>(0.0000, 0.0000, 0.0000)</td><td class="num">1.000</td><td class="num">2.080</td></tr>
+    <tr><td><code>07f5b601ee_frame_003630</code></td><td>(0.0000, 0.0000, 0.0000)</td><td class="num">1.000</td><td class="num">0.924</td></tr>
+    <tr><td><code>07ff1c45bb_frame_000460</code></td><td>(0.0000, 0.0000, 0.0000)</td><td class="num">1.000</td><td class="num">1.966</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The scene scale is the centroid distance in meters before normalization. It is the divisor applied to translations, depth and points.</p>
+
+<h3 id="check">1.7 Final data check</h3>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Sample</th><th>Valid depth</th><th>Max point reproj. error (px)</th><th>Max ray reproj. error (px)</th><th>Centroid distance</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>e050c15a8d_frame_007080</code></td><td class="num">97.8%</td><td class="num">1.10 × 10⁻⁴</td><td class="num">9.39 × 10⁻⁵</td><td class="num">1.0000</td></tr>
+    <tr><td><code>5f99900f09_frame_002820</code></td><td class="num">99.0%</td><td class="num">1.11 × 10⁻⁴</td><td class="num">1.11 × 10⁻⁴</td><td class="num">1.0000</td></tr>
+    <tr><td><code>47b37eb6f9_frame_002720</code></td><td class="num">96.1%</td><td class="num">9.59 × 10⁻⁵</td><td class="num">8.90 × 10⁻⁵</td><td class="num">1.0000</td></tr>
+    <tr><td><code>4c5c60fa76_frame_006690</code></td><td class="num">75.2%</td><td class="num">1.09 × 10⁻⁴</td><td class="num">1.01 × 10⁻⁴</td><td class="num">1.0000</td></tr>
+  </tbody>
+</table>
+</div>
+<p>
+  <span class="pass">All checks pass.</span>
+  Every reprojection error is about 10⁻⁴ px, roughly 100× below the 0.01 px requirement. What remains is float32 rounding.
+  The centroid distance is 1 for every sample. All batch shapes match the data contract
+  (batch 2, 8 views, 224×224): <code>rgb</code>, <code>points_world</code> and the rays are <code>[2, 8, 3, 224, 224]</code>,
+  <code>plucker</code> is <code>[2, 8, 6, 224, 224]</code>, <code>K</code> is <code>[2, 8, 3, 3]</code> and
+  <code>T_world_from_camera</code> is <code>[2, 8, 4, 4]</code>.
+</p>
+<details>
+  <summary>Full <code>check_data.py</code> output</summary>
+<pre><code>{
+  "split": "train",
+  "dataset_samples": 224,
+  "checked_samples": 4,
+  "samples": [
+    {
+      "sequence_name": "e050c15a8d_frame_007080",
+      "views": 8,
+      "resolution": 224,
+      "valid_depth_fraction": 0.9779127240180969,
+      "max_reprojection_error_px": 0.00011009880108758807,
+      "max_ray_reprojection_error_px": 9.394258086103946e-05,
+      "centroid_distance": 1.0
+    },
+    {
+      "sequence_name": "5f99900f09_frame_002820",
+      "views": 8,
+      "resolution": 224,
+      "valid_depth_fraction": 0.9903116226196289,
+      "max_reprojection_error_px": 0.00011108566104667261,
+      "max_ray_reprojection_error_px": 0.00011108566104667261,
+      "centroid_distance": 0.9999999403953552
+    },
+    {
+      "sequence_name": "47b37eb6f9_frame_002720",
+      "views": 8,
+      "resolution": 224,
+      "valid_depth_fraction": 0.9609947800636292,
+      "max_reprojection_error_px": 9.591897105565295e-05,
+      "max_ray_reprojection_error_px": 8.897326188161969e-05,
+      "centroid_distance": 1.0
+    },
+    {
+      "sequence_name": "4c5c60fa76_frame_006690",
+      "views": 8,
+      "resolution": 224,
+      "valid_depth_fraction": 0.7516716122627258,
+      "max_reprojection_error_px": 0.0001089862416847609,
+      "max_ray_reprojection_error_px": 0.00010141761595150456,
+      "centroid_distance": 0.9999999403953552
+    }
+  ],
+  "batch_shapes": {
+    "rgb": [2, 8, 3, 224, 224],
+    "depth": [2, 8, 1, 224, 224],
+    "depth_valid": [2, 8, 1, 224, 224],
+    "K": [2, 8, 3, 3],
+    "frame_numbers": [2, 8],
+    "T_world_from_camera": [2, 8, 4, 4],
+    "original_world_from_reference": [2, 4, 4],
+    "scene_scale": [2],
+    "points_world": [2, 8, 3, 224, 224],
+    "ray_origins": [2, 8, 3, 224, 224],
+    "ray_directions": [2, 8, 3, 224, 224],
+    "plucker": [2, 8, 6, 224, 224]
+  }
+}</code></pre>
+</details>
+
+<h3 id="explanations">Explanations</h3>
+
+<h4>Canonicalization</h4>
+<p>
+  Raw ScanNet++ poses live in an arbitrary per-scan world frame, and each room has its own physical size.
+  A model would otherwise have to infer an absolute position and scale it cannot observe.
+  Canonicalization removes both. First, every camera-to-world pose is re-expressed relative to the first sampled camera:
+  \(T'_i = T_0^{-1}\,T_i\), computed in float64. This makes camera 0 the identity, at the origin and looking down \(+Z\).
+  Depth is then unprojected in this frame, and the valid-point centroid distance \(s = \lVert \operatorname{mean}(\mathbf{p}_\text{valid}) \rVert\)
+  is computed. Translations, depth and points are all divided by \(s\), and rotations are left unchanged.
+  The centroid is not subtracted, so camera 0 stays at the origin and the scene's centroid sits exactly 1 unit away.
+  Every training sample therefore shares the same reference frame and scale.
+</p>
+
+<h4>World-space ray directions</h4>
+<p>
+  For pixel \((u, v)\), \(K^{-1}[u, v, 1]^\top\) gives the viewing direction in camera coordinates, with \(z = 1\).
+  Rotating it by the camera-to-world rotation and normalizing gives the world-space unit direction
+  \(\mathbf{d} = \dfrac{R\,K^{-1}[u, v, 1]^\top}{\lVert R\,K^{-1}[u, v, 1]^\top \rVert}\).
+  Only the rotation is applied: a direction says which way the pixel looks, not where the camera is.
+  The ray origin \(\mathbf{o}\) is the camera center \(\mathbf{t}\), shared by every pixel of that view.
+  Every surface point seen by the pixel lies on \(\mathbf{o} + \lambda\mathbf{d}\), \(\lambda \ge 0\).
+  This is what the ray reprojection check verifies.
+</p>
+
+<h4>Plücker moment</h4>
+<p>
+  The Plücker coordinates of a ray are \([\mathbf{d}, \mathbf{m}]\) with moment \(\mathbf{m} = \mathbf{o} \times \mathbf{d}\).
+  The moment does not depend on which point of the line is used as the origin:
+  \((\mathbf{o} + \lambda\mathbf{d}) \times \mathbf{d} = \mathbf{o} \times \mathbf{d}\), because \(\mathbf{d} \times \mathbf{d} = 0\).
+  So the 6-vector describes the line itself, not one point on it.
+  Geometrically, \(\mathbf{m}\) is normal to the plane containing the ray and the origin, and with unit \(\mathbf{d}\),
+  \(\lVert \mathbf{m} \rVert\) is the ray's perpendicular distance from the origin.
+  Camera 0 sits at the canonical origin, so all of its rays have \(\mathbf{m} = 0\).
+  Other cameras' moments encode where they are relative to camera 0.
+  This dense 6-channel map is the camera conditioning used by the models in Parts 2 and 3.
+</p>
+
+<!-- ============================== PART 2 ============================== -->
+<h2 id="part2">2. Novel-View Synthesis with Mini-LVSM (40 points)</h2>
+
+<h3 id="q21">2.1 Overfitting one batch</h3>
+<p>
+  The model was trained for 2000 steps on a single fixed training batch, with the same model and optimizer settings as 2.2.
+  It reached a final <strong>PSNR of 30.99 dB</strong> (SSIM 0.872, MSE 8.5 × 10⁻⁴) on that batch,
+  which passes the ~30 dB sanity check. The averaged training PSNR over all 2000 steps was 25.40 dB
+  (it starts near 12 dB). The run took 717 s on an NVIDIA A10G.
+</p>
+<figure>
+  <img src="images/part2_overfit_val.jpg" alt="Overfit visualization: source views, ground truth and prediction">
+  <figcaption><code>val_epoch000.png</code> from the overfit run. Columns: the 2 source views, ground-truth target and prediction.
+    The prediction reproduces the memorized target's layout and colors, with only slight blur at fine detail.</figcaption>
+</figure>
+
+<h3 id="q22">2.2 Training and evaluation</h3>
+<h4>Training settings</h4>
+<div class="table-wrap">
+<table>
+  <tbody>
+    <tr><th>Model</th><td>14.6M parameters; patch size 8 (784 tokens per view); width 384; 8 layers; head dim 64; MLP ratio 4; QK-norm</td></tr>
+    <tr><th>Data</th><td>ScanNet++ iPhone, 224×224, 8 views per sample: 2 source views and 6 target views; 224 training clips</td></tr>
+    <tr><th>Optimization</th><td>AdamW, lr 2 × 10⁻⁴, betas (0.9, 0.95), weight decay 0.05; 200 warmup steps, then cosine decay to 10%; gradient clip 1.0</td></tr>
+    <tr><th>Schedule</th><td>Batch size 4, 100 epochs (56 steps per epoch, 5600 steps); bf16 autocast; seed 825</td></tr>
+    <tr><th>Hardware</th><td>One NVIDIA A10G (24 GB, AWS g5.xlarge); ~28 s per epoch, 46 min in total</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h4>Training curves</h4>
+<figure>
+  <img src="images/part2_curves.png" alt="Training and validation loss, PSNR and SSIM over 100 epochs">
+  <figcaption>MSE loss and PSNR for training and validation, and validation SSIM, per epoch.
+    Validation uses 2 source views on the 28 validation clips (168 target images).</figcaption>
+</figure>
+<p>
+  Validation PSNR rises from 12.2 dB to <strong>16.13 dB</strong> and SSIM from 0.38 to <strong>0.561</strong>; the best checkpoint is the final epoch.
+  Train and validation curves stay close (final training PSNR 15.60 dB), so the model is not overfitting.
+  Both curves are still rising slowly at epoch 100, so longer training would likely help further.
+</p>
+
+<h4>Training visualizations</h4>
+<div class="grid">
+  <figure>
+    <img src="images/part2_val_epoch000.jpg" alt="Validation visualization after epoch 0">
+    <figcaption>Epoch 0. Columns: 2 source views, ground truth, prediction.</figcaption>
+  </figure>
+  <figure>
+    <img src="images/part2_val_epoch095.jpg" alt="Validation visualization after epoch 95">
+    <figcaption>Epoch 95. Same layout and validation clips.</figcaption>
+  </figure>
+</div>
+<p>
+  After epoch 0 the predictions are a nearly uniform gray. By epoch 95 they recover the coarse color layout of each held-out target:
+  bright windows and walls, dark furniture and floor in roughly the right places. Object shapes, fine texture and thin structures
+  are still very blurry and patch-blocky.
+</p>
+
+<h4>Ablations: number of source views × target-ray conditioning</h4>
+<p>
+  The best checkpoint is evaluated on the validation split with 1, 2 or 4 source views, using the remaining views as targets.
+  Target rays are either <em>correct</em>, <em>shuffled</em> (the rays of a different target view) or <em>none</em> (all zeros).
+</p>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th rowspan="2">Source views</th><th colspan="2">Correct rays</th><th colspan="2">Shuffled rays</th><th colspan="2">No rays (zeros)</th><th rowspan="2">Target images</th></tr>
+    <tr><th>PSNR (dB)</th><th>SSIM</th><th>PSNR (dB)</th><th>SSIM</th><th>PSNR (dB)</th><th>SSIM</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td class="num">15.19</td><td class="num">0.558</td><td class="num">11.80</td><td class="num">0.488</td><td class="num">12.48</td><td class="num">0.527</td><td class="num">196</td></tr>
+    <tr><td>2</td><td class="num">16.13</td><td class="num">0.561</td><td class="num">11.49</td><td class="num">0.472</td><td class="num">12.46</td><td class="num">0.526</td><td class="num">168</td></tr>
+    <tr><td>4</td><td class="num"><strong>16.89</strong></td><td class="num"><strong>0.576</strong></td><td class="num">11.59</td><td class="num">0.473</td><td class="num">12.47</td><td class="num">0.536</td><td class="num">112</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h4>Evaluation visualizations</h4>
+<p>Columns: source views, ground truth, prediction. Each image shows the first validation clips.</p>
+<div class="grid">
+  <figure><img src="images/part2_eval_S1_correct.jpg" alt="1 source view, correct rays"><figcaption>1 source view, correct rays</figcaption></figure>
+  <figure><img src="images/part2_eval_S2_correct.jpg" alt="2 source views, correct rays"><figcaption>2 source views, correct rays</figcaption></figure>
+  <figure><img src="images/part2_eval_S4_correct.jpg" alt="4 source views, correct rays"><figcaption>4 source views, correct rays</figcaption></figure>
+</div>
+<div class="grid">
+  <figure><img src="images/part2_eval_S2_shuffled.jpg" alt="2 source views, shuffled rays"><figcaption>2 source views, shuffled rays</figcaption></figure>
+  <figure><img src="images/part2_eval_S2_none.jpg" alt="2 source views, no rays"><figcaption>2 source views, no rays</figcaption></figure>
+</div>
+<details>
+  <summary>Remaining ablation images</summary>
+  <div class="grid">
+    <figure><img src="images/part2_eval_S1_shuffled.jpg" alt="1 source view, shuffled rays"><figcaption>1 source view, shuffled rays</figcaption></figure>
+    <figure><img src="images/part2_eval_S1_none.jpg" alt="1 source view, no rays"><figcaption>1 source view, no rays</figcaption></figure>
+    <figure><img src="images/part2_eval_S4_shuffled.jpg" alt="4 source views, shuffled rays"><figcaption>4 source views, shuffled rays</figcaption></figure>
+    <figure><img src="images/part2_eval_S4_none.jpg" alt="4 source views, no rays"><figcaption>4 source views, no rays</figcaption></figure>
+  </div>
+</details>
+
+<h4>Discussion</h4>
+<p>
+  <strong>Number of source views.</strong> With correct rays, quality improves steadily with more source views:
+  15.19 → 16.13 → 16.89 dB, although the model was trained only with 2.
+  More views cover more of the scene, so less of the target has to be guessed.
+  The model can use them because attention takes any number of source tokens, and the Plücker rays tell it
+  where each source pixel sits relative to the target camera. The gain shrinks per added view (+0.94 dB, then +0.76 dB for two more),
+  as views increasingly overlap.
+</p>
+<p>
+  <strong>Ray conditioning.</strong> The target rays are the only information about <em>which</em> view to render.
+  With all-zero rays, PSNR falls to about 12.5 dB for every source count, and adding views no longer helps.
+  The model then outputs a blurry average-looking image, which minimizes MSE when the viewpoint is unknown.
+  Shuffled rays are worse still (about 11.5 dB, lowest SSIM). The model trusts the rays and renders a confident but wrong
+  viewpoint, and a sharp wrong image costs more MSE than a blurry average one.
+  Together these show that the model really does use the camera geometry, rather than memorizing scene appearance.
+</p>
+<p>
+  <strong>Limitations.</strong> Predictions are blurry and show 8×8 patch seams. Small model, 100 epochs on 224 clips, and the MSE loss
+  all favor smooth averages of plausible outputs. Regions not visible in any source view cannot be recovered and come out as a smooth guess.
+</p>
+
+<h3 id="q23">2.3 Bonus: training with a random number of source views</h3>
+<p>
+  <strong>Question.</strong> The baseline always trains with S = 2 source views, yet it is evaluated with 1, 2 and 4.
+  Does training with a random S ∈ {1, 2, 3, 4} at each step (remaining views as targets) make the model better across view counts,
+  especially for S = 1 and S = 4, which the baseline never saw?
+</p>
+<p>
+  <strong>Setup.</strong> A controlled comparison: identical model, optimizer, schedule, 100 epochs, data and seed (825).
+  The only change is that each training step draws S uniformly from {1, 2, 3, 4}
+  (config <code>configs/lvsm_randS.json</code>, key <code>train_num_source_views</code>). Validation during training still uses S = 2,
+  so the best checkpoint is chosen the same way. Both checkpoints are evaluated with the same 9-setting ablation.
+</p>
+<figure>
+  <img src="images/part2_3_compare.png" alt="Validation PSNR curves and evaluation PSNR for the baseline and random-S model">
+  <figcaption>Left: validation PSNR (S = 2) during training. Right: evaluation PSNR with correct rays, by number of source views.
+    The bar axis starts at 14 dB to make the small differences visible.</figcaption>
+</figure>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Evaluation setting</th><th>Baseline (S = 2) PSNR / SSIM</th><th>Random S PSNR / SSIM</th><th>Δ PSNR (dB)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>S = 1, correct</td><td class="num">15.19 / 0.558</td><td class="num">15.21 / 0.559</td><td class="num">+0.01</td></tr>
+    <tr><td>S = 2, correct</td><td class="num">16.13 / 0.561</td><td class="num">16.19 / 0.559</td><td class="num">+0.06</td></tr>
+    <tr><td>S = 4, correct</td><td class="num">16.89 / 0.576</td><td class="num">17.00 / 0.573</td><td class="num">+0.12</td></tr>
+    <tr><td>S = 1, shuffled</td><td class="num">11.80 / 0.488</td><td class="num">11.79 / 0.487</td><td class="num">−0.01</td></tr>
+    <tr><td>S = 2, shuffled</td><td class="num">11.49 / 0.472</td><td class="num">11.46 / 0.469</td><td class="num">−0.03</td></tr>
+    <tr><td>S = 4, shuffled</td><td class="num">11.59 / 0.473</td><td class="num">11.51 / 0.466</td><td class="num">−0.08</td></tr>
+    <tr><td>S = 1, none</td><td class="num">12.48 / 0.527</td><td class="num">12.46 / 0.532</td><td class="num">−0.02</td></tr>
+    <tr><td>S = 2, none</td><td class="num">12.46 / 0.526</td><td class="num">12.43 / 0.528</td><td class="num">−0.03</td></tr>
+    <tr><td>S = 4, none</td><td class="num">12.47 / 0.536</td><td class="num">12.46 / 0.537</td><td class="num">−0.01</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="grid">
+  <figure><img src="images/part2_eval_S4_correct.jpg" alt="Baseline, 4 source views"><figcaption>Baseline, 4 source views (correct rays)</figcaption></figure>
+  <figure><img src="images/part2_3_randS_S4_correct.jpg" alt="Random-S model, 4 source views"><figcaption>Random-S model, 4 source views (correct rays)</figcaption></figure>
+</div>
+<p>
+  <strong>Results.</strong> The two models are nearly identical. The validation curves overlap throughout training.
+  The largest difference is +0.12 dB at S = 4, the setting the baseline never trained on, and S = 1 is unchanged.
+  SSIM differs by under 0.01 everywhere, and the shuffled/no-ray settings are unchanged; the images are visually indistinguishable.
+</p>
+<p>
+  <strong>Interpretation.</strong> Training with varying S gives at most a small benefit for more views than trained with, and nothing for fewer.
+  The baseline already generalizes across view counts. Attention is agnostic to sequence length, and every source token carries
+  its own Plücker rays, so the per-token computation does not depend on how many other sources are present.
+  The small model is capacity-limited (~16 dB), and that bottleneck dominates any effect of the view-count curriculum.
+</p>
+<p>
+  <strong>Limitations.</strong> One seed per configuration. Differences of ~0.1 dB are likely within run-to-run noise, so the S = 4 gain is only suggestive.
+  A firmer answer needs several seeds, longer training, a larger model, and harder settings (for example, S up to 7 or wider baselines),
+  where a fixed-S model might generalize less well.
+</p>
+
+<!-- ============================== PART 3 ============================== -->
+<h2 id="part3">3. Multi-View Geometry with Mini-VGGT (40 points)</h2>
+
+<h3 id="q31">3.1 Overfitting one scene</h3>
+<p>
+  One fixed training clip (<code>036bce3393_frame_004470</code>, 8 views) was fitted for 40 epochs × 25 steps, with learning rate 10⁻³,
+  on an NVIDIA A10G (~3 s per epoch).
+</p>
+<figure>
+  <img src="images/part3_overfit_loss_curve.jpg" alt="Overfit loss curves: total, camera and depth">
+  <figcaption>Overfit loss curves: total, camera (unweighted) and depth (unweighted).</figcaption>
+</figure>
+<p>
+  All three losses fall steadily. The total loss ends below zero, which is expected: once predictions are accurate,
+  the confidence term's −0.2·log(conf) reward outweighs the remaining weighted error.
+</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Metric on the fitted clip</th><th>Epoch 0</th><th>Epoch 40</th></tr></thead>
+  <tbody>
+    <tr><td>Total loss</td><td class="num">5.48</td><td class="num">−0.16</td></tr>
+    <tr><td>Camera loss / depth loss</td><td class="num">0.342 / 3.77</td><td class="num">0.0027 / −0.175</td></tr>
+    <tr><td>Mean rotation error</td><td class="num">49.7°</td><td class="num">0.20°</td></tr>
+    <tr><td>Mean translation-direction error</td><td class="num">90.0°</td><td class="num">0.43°</td></tr>
+    <tr><td>Pose AUC @ 5° / 15° / 30°</td><td class="num">0 / 0 / 0</td><td class="num">0.986 / 0.995 / 0.998</td></tr>
+    <tr><td>Depth AbsRel / δ1</td><td class="num">0.619 / 0.208</td><td class="num">0.036 / 0.956</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="grid">
+  <figure>
+    <img src="images/part3_overfit_gt.jpg" alt="Ground-truth cameras and points for the overfit clip">
+    <figcaption>Ground truth: canonical cameras (red = view 0) and depth-unprojected points.</figcaption>
+  </figure>
+  <figure>
+    <img src="images/part3_overfit_prediction.jpg" alt="Predicted cameras and points for the overfit clip">
+    <figcaption>Prediction: points unprojected with the predicted cameras and depth.</figcaption>
+  </figure>
+</div>
+<div class="grid">
+  <figure>
+    <img src="images/part3_overfit_gt_camview.jpg" alt="Ground truth for the overfit clip seen from the camera viewpoint">
+    <figcaption>Ground truth, seen from the cameras' viewpoint.</figcaption>
+  </figure>
+  <figure>
+    <img src="images/part3_overfit_prediction_camview.jpg" alt="Prediction for the overfit clip seen from the camera viewpoint">
+    <figcaption>Prediction, seen from the cameras' viewpoint.</figcaption>
+  </figure>
+</div>
+<p>
+  The predicted geometry matches the ground truth closely: the camera trajectory, the room layout and the depth map all line up.
+  The predicted first camera center is (0.0000, −0.0001, −0.0001), so the model has learned that view 0 is the identity.
+  The main remaining difference is in the depth map, which shows faint 14×14 patch blocks from the per-patch decoder.
+  It also fills in pixels that are missing (black) in the sensor depth, and those pixels are not supervised.
+</p>
+
+<h3 id="q32">3.2 Training and evaluation</h3>
+<h4>Training settings</h4>
+<div class="table-wrap">
+<table>
+  <tbody>
+    <tr><th>Model</th><td>Frozen DINOv2 ViT-B/14; width 384, 6 heads, 8 frame/global pairs (16 blocks); camera head with 4 blocks; depth head with RGB refinement</td></tr>
+    <tr><th>Data</th><td>ScanNet++ iPhone, 8 views sampled from a 32-frame range, 224×224; 224 training clips, 28 validation clips</td></tr>
+    <tr><th>Optimization</th><td>AdamW, lr 6 × 10⁻⁴, weight decay 0.01; 10 warmup epochs, then cosine decay to 5%; loss weights camera 5, depth 1</td></tr>
+    <tr><th>Schedule</th><td>Batch size 16 clips (14 steps per epoch), 1000 epochs (default config); best checkpoint chosen by validation loss</td></tr>
+    <tr><th>Hardware</th><td>One NVIDIA A10G (24 GB, AWS g5.xlarge); ~15 GB GPU memory, 20–35 s per epoch including validation, ~9 h in total</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h4>Training curves</h4>
+<figure>
+  <img src="images/part3_train_loss_curve.jpg" alt="Training and validation loss curves: total, camera and depth">
+  <figcaption>Total, camera (unweighted) and depth (unweighted) loss for training and validation over 1000 epochs.</figcaption>
+</figure>
+<p>
+  Depth loss drops quickly in the first ~50 epochs and then flattens. Camera loss keeps decreasing slowly for the whole run.
+  Validation loss is lower than training loss throughout. This is most likely because training clips use random view sampling
+  within the 32-frame range, while validation uses a fixed, easier sampling of the first 32 prepared frames, not because of overfitting.
+</p>
+
+<h4>Validation and test metrics</h4>
+<p>Evaluated with <code>best.pt</code>: 8 views from the first 32 prepared frames, 224 px, seed 825, full splits (28 clips each, 784 view pairs).</p>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th rowspan="2">Split</th><th colspan="2">Depth</th><th colspan="3">Rotation AUC</th><th colspan="3">Translation AUC</th><th colspan="3">Joint pose AUC</th></tr>
+    <tr><th>AbsRel ↓</th><th>δ1 ↑</th><th>@5°</th><th>@15°</th><th>@30°</th><th>@5°</th><th>@15°</th><th>@30°</th><th>@5°</th><th>@15°</th><th>@30°</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Validation</td><td class="num">0.139</td><td class="num">0.834</td><td class="num">0.199</td><td class="num">0.518</td><td class="num">0.709</td><td class="num">0.013</td><td class="num">0.077</td><td class="num">0.196</td><td class="num">0.005</td><td class="num">0.061</td><td class="num">0.180</td></tr>
+    <tr><td>Test</td><td class="num">0.151</td><td class="num">0.797</td><td class="num">0.219</td><td class="num">0.522</td><td class="num">0.710</td><td class="num">0.009</td><td class="num">0.072</td><td class="num">0.183</td><td class="num">0.002</td><td class="num">0.048</td><td class="num">0.163</td></tr>
+  </tbody>
+</table>
+</div>
+<p>
+  Mean pairwise errors: rotation 11.8° (val) / 10.3° (test); translation direction 41.8° (val) / 40.5° (test).
+  For comparison, the model at epoch 0 had depth AbsRel 0.73, and the overfit run reached 0.04 on its single clip.
+</p>
+
+<h4>Ground truth vs prediction on four held-out validation scenes</h4>
+<p>Each pair shows the GT (left) and the predicted cameras + depth (right) in the canonical first-camera frame. The viewpoint is behind the cameras, looking into the room, so the reconstructed surfaces face the viewer.</p>
+<h4><code>09c1414f1b</code>: dining room</h4>
+<div class="grid">
+  <figure><img src="images/part3_scene1_gt.jpg" alt="Scene 09c1414f1b ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="images/part3_scene1_prediction.jpg" alt="Scene 09c1414f1b prediction"><figcaption>Prediction</figcaption></figure>
+</div>
+<h4><code>21d970d8de</code>: office floor and chair</h4>
+<div class="grid">
+  <figure><img src="images/part3_scene2_gt.jpg" alt="Scene 21d970d8de ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="images/part3_scene2_prediction.jpg" alt="Scene 21d970d8de prediction"><figcaption>Prediction</figcaption></figure>
+</div>
+<h4><code>280b83fcf3</code>: hallway</h4>
+<div class="grid">
+  <figure><img src="images/part3_scene3_gt.jpg" alt="Scene 280b83fcf3 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="images/part3_scene3_prediction.jpg" alt="Scene 280b83fcf3 prediction"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="grid">
+  <figure><img src="images/part3_scene3_gt_camview.jpg" alt="Scene 280b83fcf3 ground truth seen from the camera viewpoint"><figcaption>Ground truth, seen from the cameras' viewpoint</figcaption></figure>
+  <figure><img src="images/part3_scene3_prediction_camview.jpg" alt="Scene 280b83fcf3 prediction seen from the camera viewpoint"><figcaption>Prediction, seen from the cameras' viewpoint</figcaption></figure>
+</div>
+<h4><code>2b1dc6d6a5</code>: office desk</h4>
+<div class="grid">
+  <figure><img src="images/part3_scene4_gt.jpg" alt="Scene 2b1dc6d6a5 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="images/part3_scene4_prediction.jpg" alt="Scene 2b1dc6d6a5 prediction"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="grid">
+  <figure><img src="images/part3_scene4_gt_camview.jpg" alt="Scene 2b1dc6d6a5 ground truth seen from the camera viewpoint"><figcaption>Ground truth, seen from the cameras' viewpoint</figcaption></figure>
+  <figure><img src="images/part3_scene4_prediction_camview.jpg" alt="Scene 2b1dc6d6a5 prediction seen from the camera viewpoint"><figcaption>Prediction, seen from the cameras' viewpoint</figcaption></figure>
+</div>
+
+<h4>Discussion of errors on held-out scenes</h4>
+<p>
+  <strong>What works.</strong> On unseen rooms the model recovers the overall scene layout and scale.
+  Floors, walls, the hallway and the desk area are in the right places, and the valid-point centroid distance of the
+  predictions is 0.97–0.99 (GT: 1.00), so the predicted metric scale is nearly correct. Depth is good at the coarse level
+  (δ1 ≈ 0.80–0.83, AbsRel ≈ 0.14–0.15), and relative rotations are mostly within 15–30° (rotation AUC@30 ≈ 0.71).
+  Val and test are close, so the model generalizes consistently to new scenes.
+</p>
+<p>
+  <strong>Depth errors.</strong> Predicted depth is over-smoothed. Thin structures disappear (the chair legs and table edges
+  in <code>09c1414f1b</code>), depth discontinuities are blurred into ramps, and flat walls become slightly wavy and thick in 3D.
+  The depth head decodes each 14×14 DINO patch with a linear layer plus a tiny convolutional refinement, so it cannot represent detail
+  finer than a patch. The L1-style loss also favors smooth averages where it is uncertain.
+</p>
+<p>
+  <strong>Camera errors.</strong> Translation direction is the weakest output (AUC@30 ≈ 0.19, mean error ~41°), and it drags down
+  the joint pose AUC. Views come from at most 32 consecutive video frames, so baselines are short and often dominated by rotation.
+  For a short baseline, a small absolute error in translation becomes a large error in its <em>direction</em>.
+  The model also has to infer translation purely from parallax in frozen DINO features, without iterative refinement.
+  Rotation is easier: it follows directly from how image content shifts between views.
+  Fine accuracy is low everywhere (AUC@5 ≤ 0.22), so the model gets cameras roughly right but not precisely.
+</p>
+<p>
+  <strong>Limitations.</strong> A small model (width 384) trained only on 224 clips for ~9 h on one A10G.
+  The camera loss was still decreasing at the end of training, so longer training would likely improve poses further.
+  Larger gains would probably come from a stronger depth decoder (for example, DPT-style multi-scale features),
+  iterative camera refinement, more training data, or unfreezing DINO.
+</p>
+
+<h3 id="q33">3.3 Bonus: how does the number of input views affect accuracy, runtime and memory?</h3>
+<p>
+  <strong>Question.</strong> Mini-VGGT was trained only with 8 views, but its architecture accepts any number of views:
+  frame attention is per view, and global attention simply sees a longer sequence.
+  Does the trained model get better with more views (more parallax and more context), worse with fewer,
+  or does it break outside its training setting? And how do runtime and memory scale?
+</p>
+<p>
+  <strong>Setup.</strong> Evaluation only, with the 3.2 checkpoint (<code>best.pt</code>, epoch 890) and no retraining.
+  Full val and test splits, using the same protocol as 3.2 (first 32 prepared frames, 224 px, seed 825), with V ∈ {2, 4, 8, 12, 16, 24, 32}.
+  The evaluation loader always takes frame 0 plus the first V−1 frames of a fixed per-scene random order.
+  The view sets are therefore <em>nested</em>: every larger set contains the smaller ones, so V is the only thing that changes.
+  As a check, V = 8 reproduces the 3.2 numbers exactly.
+  Runtime and peak GPU memory were measured separately at batch size 1 on the A10G (bf16 autocast, 10 timed forward passes after warm-up;
+  training step = forward + backward with frozen DINO).
+</p>
+
+<h4>Accuracy vs number of views</h4>
+<figure>
+  <img src="images/part3_3_accuracy.png" alt="Depth AbsRel, depth delta1, rotation AUC@30 and translation AUC@30 vs number of views, for val and test">
+  <figcaption>Accuracy of the 8-view-trained model as the number of input views changes (log-scale x-axis; dashed line = training setting).</figcaption>
+</figure>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th rowspan="2">Views</th><th rowspan="2">Pose pairs</th><th colspan="4">Validation</th><th colspan="4">Test</th></tr>
+    <tr><th>AbsRel ↓</th><th>δ1 ↑</th><th>Rot AUC@30</th><th>Trans AUC@30</th><th>AbsRel ↓</th><th>δ1 ↑</th><th>Rot AUC@30</th><th>Trans AUC@30</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>2</td><td class="num">28</td><td class="num">0.109</td><td class="num">0.880</td><td class="num">0.719</td><td class="num">0.281</td><td class="num">0.114</td><td class="num">0.886</td><td class="num">0.699</td><td class="num">0.210</td></tr>
+    <tr><td>4</td><td class="num">168</td><td class="num">0.129</td><td class="num">0.851</td><td class="num">0.670</td><td class="num">0.227</td><td class="num">0.139</td><td class="num">0.816</td><td class="num">0.727</td><td class="num">0.212</td></tr>
+    <tr><td><strong>8 (trained)</strong></td><td class="num">784</td><td class="num">0.139</td><td class="num">0.834</td><td class="num">0.709</td><td class="num">0.196</td><td class="num">0.151</td><td class="num">0.797</td><td class="num">0.709</td><td class="num">0.183</td></tr>
+    <tr><td>12</td><td class="num">1848</td><td class="num">0.151</td><td class="num">0.806</td><td class="num">0.691</td><td class="num">0.172</td><td class="num">0.154</td><td class="num">0.795</td><td class="num">0.702</td><td class="num">0.193</td></tr>
+    <tr><td>16</td><td class="num">3360</td><td class="num">0.163</td><td class="num">0.805</td><td class="num">0.672</td><td class="num">0.172</td><td class="num">0.159</td><td class="num">0.787</td><td class="num">0.714</td><td class="num">0.191</td></tr>
+    <tr><td>24</td><td class="num">7728</td><td class="num">0.155</td><td class="num">0.800</td><td class="num">0.677</td><td class="num">0.169</td><td class="num">0.155</td><td class="num">0.799</td><td class="num">0.721</td><td class="num">0.191</td></tr>
+    <tr><td>32</td><td class="num">13888</td><td class="num">0.164</td><td class="num">0.786</td><td class="num">0.663</td><td class="num">0.165</td><td class="num">0.157</td><td class="num">0.801</td><td class="num">0.724</td><td class="num">0.189</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h4>Runtime and memory vs number of views</h4>
+<figure>
+  <img src="images/part3_3_cost.png" alt="Time per sample and peak GPU memory vs number of views, for inference and a training step">
+  <figcaption>Batch size 1 on an NVIDIA A10G. Inference: no_grad + bf16. Training step: forward + backward through everything except the frozen DINO.</figcaption>
+</figure>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Views</th><th>Tokens in global attention</th><th>Inference (ms)</th><th>Inference peak memory (GB)</th><th>Training step (ms)</th><th>Training peak memory (GB)</th></tr></thead>
+  <tbody>
+    <tr><td>2</td><td class="num">522</td><td class="num">33</td><td class="num">0.68</td><td class="num">78</td><td class="num">0.90</td></tr>
+    <tr><td>4</td><td class="num">1,044</td><td class="num">35</td><td class="num">0.70</td><td class="num">79</td><td class="num">1.09</td></tr>
+    <tr><td>8</td><td class="num">2,088</td><td class="num">34</td><td class="num">0.74</td><td class="num">78</td><td class="num">1.48</td></tr>
+    <tr><td>16</td><td class="num">4,176</td><td class="num">52</td><td class="num">0.82</td><td class="num">109</td><td class="num">2.28</td></tr>
+    <tr><td>24</td><td class="num">6,264</td><td class="num">76</td><td class="num">0.89</td><td class="num">162</td><td class="num">3.09</td></tr>
+    <tr><td>32</td><td class="num">8,352</td><td class="num">106</td><td class="num">0.97</td><td class="num">227</td><td class="num">3.92</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h4>Results and conclusions</h4>
+<p>
+  <strong>More views do not help.</strong> Depth is best with the fewest views: val AbsRel goes 0.109 → 0.139 → 0.164 for 2 → 8 → 32 views,
+  with the same trend on test. Rotation AUC@30 stays at 0.66–0.73 with no clear trend, and translation AUC@30 falls on val (0.28 → 0.17)
+  and is flat on test. The model does not use the extra parallax. It does <strong>degrade gracefully</strong>, though:
+  even at 32 views (4× its training setting) no metric collapses, because attention with per-view 2D positions works for any number of views.
+</p>
+<p>
+  <strong>Possible reasons</strong> (not verified): extra views dilute global attention in a way the model never saw in training;
+  with few views, the easier reference view 0 makes up a larger share of the depth metric; and pose AUCs at small V use few pairs, so they are noisy.
+</p>
+<p>
+  <strong>Cost.</strong> Inference time is flat (~34 ms) up to 8 views, then grows faster than linearly: 52 ms at 16 views, 106 ms at 32.
+  Inference memory barely changes (0.7 → 1.0 GB). Training memory grows linearly, about 0.1 GB per view,
+  so 32 views at batch size 16 would need about 60 GB, more than the 24 GB GPU.
+</p>
+<p>
+  <strong>Limitations.</strong> One checkpoint, trained at 8 views and evaluated only. A model trained with more or varying views might benefit from them.
+  All views come from the same 32-frame window, so extra views add denser coverage, not wider baselines.
+</p>
+
+</main>
+</body>
+</html>

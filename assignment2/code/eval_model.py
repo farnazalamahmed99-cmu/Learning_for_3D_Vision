@@ -1,0 +1,260 @@
+import argparse
+import time
+import torch
+from model import SingleViewto3D
+from r2n2_custom import R2N2
+from  pytorch3d.datasets.r2n2.utils import collate_batched_R2N2
+import dataset_location
+import pytorch3d
+from pytorch3d.ops import sample_points_from_meshes
+from pytorch3d.ops import knn_points
+import mcubes
+import utils_vox
+import matplotlib.pyplot as plt 
+from pytorch3d.transforms import Rotate, axis_angle_to_matrix
+import math
+import numpy as np
+import os
+import pytorch3d.renderer
+from pytorch3d.renderer import TexturesVertex
+from render_utils import get_mesh_renderer, voxels_to_mesh, get_points_renderer
+
+# Occupancy level where the surface is extracted from predicted voxel grids (vox and implicit).
+# Tuned instead of the default 0.5: the BCE-trained models are under-confident on thin parts
+# (about 96% of voxels are empty), and 0.3 gives the best F1 (see Q2.4 on the webpage).
+VOX_THRESHOLD = 0.3
+
+
+def get_args_parser():
+    parser = argparse.ArgumentParser('Singleto3D', add_help=False)
+    parser.add_argument('--arch', default='resnet18', type=str)
+    parser.add_argument('--vis_freq', default=1000, type=int)
+    parser.add_argument('--batch_size', default=1, type=int)
+    parser.add_argument('--num_workers', default=0, type=int)
+    parser.add_argument('--type', default='vox', choices=['vox', 'point', 'mesh', 'implicit', 'parametric'], type=str)
+    parser.add_argument('--n_points', default=1000, type=int)
+    parser.add_argument('--w_chamfer', default=1.0, type=float)
+    parser.add_argument('--w_smooth', default=0.1, type=float)  
+    parser.add_argument('--load_checkpoint', action='store_true')  
+    parser.add_argument('--device', default='cuda', type=str) 
+    parser.add_argument('--load_feat', action='store_true')
+    return parser
+
+def preprocess(feed_dict, args):
+    for k in ['images']:
+        feed_dict[k] = feed_dict[k].to(args.device)
+
+    images = feed_dict['images'].squeeze(1)
+    mesh = feed_dict['mesh']
+    if args.load_feat:
+        images = torch.stack(feed_dict['feats']).to(args.device)
+
+    return images, mesh
+
+def save_plot(thresholds, avg_f1_score, args):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot(thresholds, avg_f1_score, marker='o')
+    ax.set_xlabel('Threshold')
+    ax.set_ylabel('F1-score')
+    ax.set_title(f'Evaluation {args.type}')
+    plt.savefig(f'eval_{args.type}', bbox_inches='tight')
+
+
+def compute_sampling_metrics(pred_points, gt_points, thresholds, eps=1e-8):
+    metrics = {}
+    lengths_pred = torch.full(
+        (pred_points.shape[0],), pred_points.shape[1], dtype=torch.int64, device=pred_points.device
+    )
+    lengths_gt = torch.full(
+        (gt_points.shape[0],), gt_points.shape[1], dtype=torch.int64, device=gt_points.device
+    )
+
+    # For each predicted point, find its neareast-neighbor GT point
+    knn_pred = knn_points(pred_points, gt_points, lengths1=lengths_pred, lengths2=lengths_gt, K=1)
+    # Compute L1 and L2 distances between each pred point and its nearest GT
+    pred_to_gt_dists2 = knn_pred.dists[..., 0]  # (N, S)
+    pred_to_gt_dists = pred_to_gt_dists2.sqrt()  # (N, S)
+
+    # For each GT point, find its nearest-neighbor predicted point
+    knn_gt = knn_points(gt_points, pred_points, lengths1=lengths_gt, lengths2=lengths_pred, K=1)
+    # Compute L1 and L2 dists between each GT point and its nearest pred point
+    gt_to_pred_dists2 = knn_gt.dists[..., 0]  # (N, S)
+    gt_to_pred_dists = gt_to_pred_dists2.sqrt()  # (N, S)
+
+    # Compute precision, recall, and F1 based on L2 distances
+    for t in thresholds:
+        precision = 100.0 * (pred_to_gt_dists < t).float().mean(dim=1)
+        recall = 100.0 * (gt_to_pred_dists < t).float().mean(dim=1)
+        f1 = (2.0 * precision * recall) / (precision + recall + eps)
+        metrics["Precision@%f" % t] = precision
+        metrics["Recall@%f" % t] = recall
+        metrics["F1@%f" % t] = f1
+
+    # Move all metrics to CPU
+    metrics = {k: v.cpu() for k, v in metrics.items()}
+    return metrics
+
+def evaluate(predictions, mesh_gt, thresholds, args):
+    if args.type in ("vox", "implicit"):
+        voxels_src = predictions
+        H,W,D = voxels_src.shape[2:]
+        vertices_src, faces_src = mcubes.marching_cubes(voxels_src.detach().cpu().squeeze().numpy(), isovalue=VOX_THRESHOLD)
+        if len(faces_src) == 0:
+             return {f"{name}@{t:f}": torch.zeros(1) for t in thresholds for name in ("Precision", "Recall", "F1")}
+        vertices_src = torch.tensor(vertices_src).float()
+        faces_src = torch.tensor(faces_src.astype(int))
+        mesh_src = pytorch3d.structures.Meshes([vertices_src], [faces_src])
+        pred_points = sample_points_from_meshes(mesh_src, args.n_points)
+        pred_points = utils_vox.Mem2Ref(pred_points, H, W, D)
+        # Apply a rotation transform to align predicted voxels to gt mesh
+        angle = -math.pi
+        axis_angle = torch.as_tensor(np.array([[0.0, angle, 0.0]]))
+        Rot = axis_angle_to_matrix(axis_angle)
+        T_transform = Rotate(Rot)
+        pred_points = T_transform.transform_points(pred_points)
+        # re-center the predicted points
+        pred_points = pred_points - pred_points.mean(1, keepdim=True)
+    elif args.type in ("point", "parametric"):
+        pred_points = predictions.cpu()
+    elif args.type == "mesh":
+        pred_points = sample_points_from_meshes(predictions, args.n_points).cpu()
+
+    gt_points = sample_points_from_meshes(mesh_gt, args.n_points)
+    if args.type in ("vox", "implicit"):
+        gt_points = gt_points - gt_points.mean(1, keepdim=True)
+    metrics = compute_sampling_metrics(pred_points, gt_points, thresholds)
+    return metrics
+def color_mesh(mesh, color, device):
+    # copy of a mesh with a single solid color, so it can be rendered
+    verts = mesh.verts_packed().detach().to(device)
+    faces = mesh.faces_packed().long().to(device)
+    tex = torch.ones_like(verts)[None] * torch.tensor(color, device=device)
+    return pytorch3d.structures.Meshes([verts], [faces], textures=TexturesVertex(tex))
+def align_vox_mesh(vox_mesh, mesh_gt):
+    # the R2N2 voxels are rotated 90 degrees about y relative to the meshes:
+    # rotate back and move to the gt mesh's bounding-box centre
+    R = axis_angle_to_matrix(torch.tensor([0.0, -math.pi / 2, 0.0], device=vox_mesh.device))
+    verts = vox_mesh.verts_packed() @ R
+    gt = mesh_gt.verts_packed()
+    verts = verts - (verts.min(0).values + verts.max(0).values) / 2 \
+                  + (gt.min(0).values + gt.max(0).values) / 2
+    return vox_mesh.update_padded(verts[None])
+
+
+def render_mesh(mesh, device, azim=45, elev=20, dist=1.5):
+    renderer = get_mesh_renderer(image_size=256, device=device)
+    lights = pytorch3d.renderer.PointLights(location=[[0, 0, -3]], device=device)
+    R, T = pytorch3d.renderer.look_at_view_transform(dist=dist, elev=elev, azim=azim)
+    cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
+    return renderer(mesh, cameras=cameras, lights=lights)[0, ..., :3].detach().cpu().numpy().clip(0, 1)
+def render_points(points, device, color=[0.4, 0.4, 1], azim=45, elev=20, dist=1.5):
+    # points: n x 3. RGBA colors so the compositor draws the white background
+    rgba = torch.tensor(color + [1.0], device=device).expand(points.shape[0], 4)
+    cloud = pytorch3d.structures.Pointclouds(points=[points.detach().to(device)], features=[rgba])
+    renderer = get_points_renderer(image_size=256, radius=0.02, device=device)
+    R, T = pytorch3d.renderer.look_at_view_transform(dist=dist, elev=elev, azim=azim)
+    cameras = pytorch3d.renderer.FoVPerspectiveCameras(R=R, T=T, device=device)
+    return renderer(cloud, cameras=cameras)[0, ..., :3].detach().cpu().numpy().clip(0, 1)
+
+
+def evaluate_model(args):
+    r2n2_dataset = R2N2("test", dataset_location.SHAPENET_PATH, dataset_location.R2N2_PATH, dataset_location.SPLITS_PATH, return_voxels=True, return_feats=args.load_feat)
+
+    loader = torch.utils.data.DataLoader(
+        r2n2_dataset,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        collate_fn=collate_batched_R2N2,
+        pin_memory=True,
+        drop_last=True)
+    eval_loader = iter(loader)
+
+    model = SingleViewto3D(args)
+    model.to(args.device)
+    model.eval()
+
+    start_iter = 0
+    start_time = time.time()
+
+    thresholds = [0.01, 0.02, 0.03, 0.04, 0.05]
+
+    avg_f1_score_05 = []
+    avg_f1_score = []
+    avg_p_score = []
+    avg_r_score = []
+
+    if args.load_checkpoint:
+        checkpoint = torch.load(f'checkpoint_{args.type}.pth')
+        model.load_state_dict(checkpoint['model_state_dict'])
+        print(f"Succesfully loaded iter {start_iter}")
+    
+    print("Starting evaluating !")
+    max_iter = len(eval_loader)
+    for step in range(start_iter, max_iter):
+        iter_start_time = time.time()
+
+        read_start_time = time.time()
+
+        feed_dict = next(eval_loader)
+
+        images_gt, mesh_gt = preprocess(feed_dict, args)
+
+        read_time = time.time() - read_start_time
+
+        predictions = model(images_gt, args)
+
+        metrics = evaluate(predictions, mesh_gt, thresholds, args)
+
+        # TODO:
+        # if (step % args.vis_freq) == 0:
+        #     # visualization block
+        #     #  rend = 
+        #     plt.imsave(f'vis/{step}_{args.type}.png', rend)
+        if (step % args.vis_freq) == 0:
+            os.makedirs('vis', exist_ok=True)
+            gt_vis = color_mesh(mesh_gt, [1, 0.7, 0.7], args.device)
+            if args.type in ("vox", "implicit"):
+                if (predictions[0,0] > VOX_THRESHOLD).any():
+                    pred_vis = align_vox_mesh(voxels_to_mesh(predictions[0, 0], device=args.device,
+                                                             isovalue=VOX_THRESHOLD), gt_vis)
+                    pred_img=render_mesh(pred_vis, args.device)
+                else:
+                    pred_img = np.ones((256, 256, 3))
+            elif args.type in ("point", "parametric"):
+                pred_img = render_points(predictions[0], args.device)
+            elif args.type == "mesh":
+                pred_img = render_mesh(color_mesh(predictions, [0.7, 0.7, 1], args.device), args.device)
+            rgb = images_gt[0].detach().cpu().numpy()
+            panels = [rgb, pred_img, render_mesh(gt_vis, args.device)]
+            fig, axes = plt.subplots(1, 3, figsize=(9, 3))
+            for ax, img, title in zip(axes, panels, ["Input RGB", f"Predicted {args.type}", "Ground truth mesh"]):
+                ax.imshow(img)
+                ax.set_title(title)
+                ax.axis("off")
+            plt.savefig(f'vis/{step}_{args.type}.png', bbox_inches='tight')
+            plt.close(fig)
+
+      
+
+        total_time = time.time() - start_time
+        iter_time = time.time() - iter_start_time
+
+        f1_05 = metrics['F1@0.050000']
+        avg_f1_score_05.append(f1_05)
+        avg_p_score.append(torch.tensor([metrics["Precision@%f" % t] for t in thresholds]))
+        avg_r_score.append(torch.tensor([metrics["Recall@%f" % t] for t in thresholds]))
+        avg_f1_score.append(torch.tensor([metrics["F1@%f" % t] for t in thresholds]))
+
+        print("[%4d/%4d]; ttime: %.0f (%.2f, %.2f); F1@0.05: %.3f; Avg F1@0.05: %.3f" % (step, max_iter, total_time, read_time, iter_time, f1_05, torch.tensor(avg_f1_score_05).mean()))
+    
+
+    avg_f1_score = torch.stack(avg_f1_score).mean(0)
+
+    save_plot(thresholds, avg_f1_score,  args)
+    print('Done!')
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser('Singleto3D', parents=[get_args_parser()])
+    args = parser.parse_args()
+    evaluate_model(args)

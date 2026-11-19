@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>16-825 Assignment 3</title>
+<style>
+  :root { --text: #1f2328; --muted: #57606a; --line: #d0d7de; --bg: #ffffff; --soft: #f6f8fa; --accent: #8c1515; }
+  body { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--text); background: var(--bg);
+         max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; line-height: 1.55; }
+  h1 { margin-bottom: 4px; }
+  h2 { border-bottom: 2px solid var(--accent); padding-bottom: 4px; margin-top: 48px; }
+  h3 { margin-top: 32px; }
+  .sub { color: var(--muted); margin-top: 0; }
+  nav { background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 8px 16px; }
+  nav a { margin-right: 12px; white-space: nowrap; }
+  figure { margin: 12px 0; text-align: center; }
+  figure img { max-width: 100%; border: 1px solid var(--line); }
+  figcaption { color: var(--muted); font-size: 0.9em; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+  .row figure { flex: 1 1 200px; max-width: 320px; }
+  .row.wide figure { max-width: 460px; }
+  .pixel img { image-rendering: pixelated; width: 256px; }
+  table { border-collapse: collapse; margin: 12px auto; }
+  th, td { border: 1px solid var(--line); padding: 6px 12px; text-align: center; }
+  th { background: var(--soft); }
+  code { background: var(--soft); padding: 1px 4px; border-radius: 3px; font-size: 0.92em; }
+  .note { background: var(--soft); border-left: 4px solid var(--accent); padding: 8px 12px; }
+  @media (max-width: 600px) { .pixel img { width: 100%; } }
+</style>
+</head>
+<body>
+
+<h1>16-825 Learning for 3D Vision &mdash; Assignment 3</h1>
+<p class="sub">Volume Rendering, NeRF, and 3D Gaussian Splatting &middot; Andrew ID: farnazaa</p>
+
+<nav>
+  <a href="#q1">1. Volume rendering</a>
+  <a href="#q2">2. Box optimization</a>
+  <a href="#q3">3. NeRF</a>
+  <a href="#q4">4. NeRF extensions</a>
+  <a href="#q5">5. Gaussian rasterization</a>
+  <a href="#q6">6. Gaussian training</a>
+  <a href="#q7">7. Extensions</a>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="q1">1. Differentiable Volume Rendering</h2>
+
+<h3>1.3 Ray sampling</h3>
+<p>Pixel coordinates are generated on a W&times;H grid and mapped to NDC in [-1, 1]. Each pixel is lifted to the plane
+z&nbsp;=&nbsp;1 in NDC, unprojected to world space with <code>camera.unproject_points</code>, and the ray direction is the
+normalized vector from the camera center to that point. Both visualizations match the TA references.</p>
+<div class="row">
+  <figure><img src="data/q1_grid.png" alt="xy grid"><figcaption>xy_grid</figcaption></figure>
+  <figure><img src="data/q1_rays.png" alt="ray directions"><figcaption>rays (|direction|)</figcaption></figure>
+</div>
+
+<h3>1.4 Point sampling</h3>
+<p>64 depths are spaced uniformly between near = 0 and far = 5, and each sample point is
+<code>origin + t &middot; direction</code>. The sample points from the first camera form the expected viewing frustum.</p>
+<div class="row"><figure><img src="data/q1_sample_points.png" alt="sample points"><figcaption>Sample points along rays (camera 0)</figcaption></figure></div>
+
+<h3>1.5 Volume rendering</h3>
+<p>For each sample, &alpha;<sub>i</sub> = 1 &minus; exp(&minus;&sigma;<sub>i</sub>&Delta;t<sub>i</sub>) and
+T<sub>i</sub> = &prod;<sub>j&lt;i</sub>(1 &minus; &alpha;<sub>j</sub>) (computed with a cumulative product, with T<sub>1</sub> = 1).
+The weights w<sub>i</sub> = T<sub>i</sub>&alpha;<sub>i</sub> are used for both color (&sum; w<sub>i</sub>c<sub>i</sub>) and
+depth (&sum; w<sub>i</sub>t<sub>i</sub>). The rendered GIF matches the TA GIF to within GIF compression noise
+(mean absolute difference &asymp; 1/255 per pixel).</p>
+<div class="row">
+  <figure><img src="data/q1_part_1.gif" alt="part 1 gif"><figcaption>part_1.gif</figcaption></figure>
+  <figure><img src="data/q1_depth.png" alt="depth"><figcaption>Depth (normalized by its maximum)</figcaption></figure>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="q2">2. Optimizing a Basic Implicit Volume</h2>
+<h3>2.1 Random ray sampling</h3>
+<p>Each training step renders only a random subset of rays. <code>torch.randperm</code> shuffles all pixel coordinates and the
+first <code>n_pixels</code> are kept (4096 per step, no duplicates). The same coordinates are used to sample the ground-truth
+colors.</p>
+
+<h3>2.2 Loss and training</h3>
+<p>The loss is the mean squared error between rendered and ground-truth colors. Training the box's center and side lengths
+for 1000 epochs (Adam, lr 5e-4) gives, rounded to 1/100:</p>
+<table>
+  <tr><th></th><th>x</th><th>y</th><th>z</th></tr>
+  <tr><td>Box center</td><td>0.25</td><td>0.25</td><td>0.00</td></tr>
+  <tr><td>Box side lengths</td><td>2.01</td><td>1.50</td><td>1.50</td></tr>
+</table>
+<h3>2.3 Visualization</h3>
+<p>Spiral rendering of the optimized box. It matches the TA's <code>part_2.gif</code>.</p>
+<div class="row"><figure><img src="data/q2_part_2.gif" alt="part 2 gif"><figcaption>part_2.gif (optimized box)</figcaption></figure></div>
+
+<!-- ============================================================ -->
+<h2 id="q3">3. Optimizing a Neural Radiance Field</h2>
+<p><b>Architecture.</b> Positions are encoded with 6 harmonic frequencies (3 &rarr; 39 dims) and passed through a 6-layer,
+128-unit ReLU MLP with a skip connection that re-injects the encoding at layer 3. A linear head followed by <b>ReLU</b>
+gives density, and a 128&rarr;64&rarr;3 head followed by <b>Sigmoid</b> gives color.
+Trained for 250 epochs on 128&times;128 images, 1024 rays per step, 128 samples per ray, Adam lr 5e-4.</p>
+<p class="note"><b>Note on initialization.</b> With a ReLU density, the randomly initialized network output zero density at
+every sample, so no gradient reached the density head and the renders stayed black. Initializing the density layer's
+bias to 0.1 makes density start slightly positive, and training then converges normally.</p>
+<div class="row"><figure><img src="data/q3_lego.gif" alt="lego nerf" width="256"><figcaption>part_3.gif (test PSNR 23.08 dB on 20 held-out views)</figcaption></figure></div>
+
+<!-- ============================================================ -->
+<h2 id="q4">4. NeRF Extensions</h2>
+<p>I implemented all three extensions (4.1 is the required one; 4.2 and 4.3 are extra credit).</p>
+
+<h3>4.1 View dependence</h3>
+<p>The viewing direction is encoded with 2 harmonic frequencies (3 &rarr; 15 dims) and concatenated with the 128-d trunk
+feature as input to the <b>color head only</b>. Density still depends only on position. Trained on the materials scene
+(<code>nerf_materials.yaml</code>: 250 epochs, 128&times;128, lr 1e-4).</p>
+<div class="row"><figure><img src="data/q4_1_materials.gif" alt="materials" width="256"><figcaption>Materials scene with view-dependent NeRF: specular highlights move across the spheres as the camera orbits</figcaption></figure></div>
+<p><b>Trade-off between view dependence and generalization.</b> View dependence lets the model represent
+specular highlights and reflections, which a position-only NeRF has to blur or bake into a fixed color. The risk is
+overfitting: with only ~100 training views, a powerful direction input lets the network explain each training image with
+view-specific colors instead of learning correct geometry, which produces artifacts or floaters from novel viewpoints. The
+design limits this in three ways: (1) direction feeds only the color head, so geometry is shared by all views; (2) direction
+uses far fewer frequencies than position (2 vs. 6), so view effects stay smooth; and (3) direction enters late, through a
+small head, so most of the capacity goes to view-independent structure.</p>
+
+<h3>4.2 Coarse / fine sampling</h3>
+<p>Two NeRFs of the Q3 architecture are used. The coarse network is evaluated at 64 stratified samples. Its weights
+(excluding the endpoints) define a piecewise-constant PDF over the bins between sample midpoints, and 64 additional depths
+are drawn from it by inverse-transform sampling (random during training, evenly spaced at render time). The fine network is
+evaluated at the sorted union of all 128 depths. The loss is MSE(fine) + MSE(coarse), and the coarse weights are detached
+before sampling. For a fair comparison, the Q3 baseline uses 128 uniform samples, so the fine network sees the same number of
+points per ray.</p>
+<table>
+  <tr><th>Model</th><th>Test PSNR (20 views)</th><th>Render time / 128&times;128 image</th><th>Training speed</th></tr>
+  <tr><td>Q3 NeRF, 128 uniform samples</td><td>23.08 dB</td><td>135 ms</td><td>36.9 it/s (~14 min)</td></tr>
+  <tr><td>Coarse/fine, 64 + 64 samples</td><td><b>23.30 dB</b></td><td>202 ms (1.5&times;)</td><td>19.7 it/s (~25 min, 1.9&times;)</td></tr>
+</table>
+<div class="row"><figure class="pixel"><img src="data/q4_2_compare.png" alt="baseline vs coarse/fine" style="width:100%;max-width:768px"><figcaption>Same frame: Q3 baseline (left) vs. coarse/fine (right), upscaled 3&times;</figcaption></figure></div>
+<div class="row"><figure><img src="data/q4_2_coarse_fine.gif" alt="coarse fine" width="256"><figcaption>Coarse/fine NeRF</figcaption></figure></div>
+<p><b>Trade-offs.</b> Importance sampling places the fine network's samples where the coarse pass found surfaces instead of
+spending most of them on empty space, which gives a small but consistent quality gain (+0.22 dB, slightly crisper edges).
+The cost is running two networks: 64 coarse + 128 fine evaluations per ray instead of 128, so rendering is about 1.5&times;
+slower and training about 1.9&times; slower. At 128&times;128 resolution with a compact object, uniform sampling is already
+reasonably dense, so the gain is modest. It matters more at higher resolution or with a tighter sample budget.</p>
+
+<h3>4.3 VolSDF</h3>
+<p><b>Implementation.</b> <code>NeuralSurface</code> encodes positions with 6 harmonic frequencies and passes them through a 6-layer,
+128-unit MLP. Its first output is the signed distance (no activation, since distance can be negative), and the remaining 128
+outputs are a feature vector that a 2-layer color MLP maps to RGB with a sigmoid. The eikonal loss is
+mean((&Vert;&nabla;d&Vert; &minus; 1)&sup2;) on random points in the scene bounds (weight 0.02). SDF to density follows VolSDF:
+&sigma; = &alpha;&middot;&Psi;<sub>&beta;</sub>(&minus;d), where &Psi;<sub>&beta;</sub> is the CDF of a zero-mean Laplace
+distribution with scale &beta;. I wrote it with exp(&minus;|d|/&beta;) in both branches so it cannot overflow and produce NaN gradients.</p>
+
+<p><b>What &alpha; and &beta; do.</b> &alpha; is the density deep inside the object: the maximum opacity. &beta; controls how
+sharply density falls off around the zero level set. Density goes from &alpha; to 0 over a band roughly a few &beta; wide, so
+&beta; acts as the "blurriness" or thickness of the surface.</p>
+<ol>
+  <li><b>How does high/low &beta; bias the learned SDF?</b> High &beta; spreads density over a thick band around the surface, so
+  the rendering is insensitive to exactly where the zero level set is. The learned surface is smoothed, blobby, and loses thin
+  structures. Low &beta; makes density a near step function at d = 0, so the rendered surface sits exactly at the zero level
+  set and the SDF is pushed to put it in the right place.</li>
+  <li><b>Easier to train with low or high &beta;?</b> High &beta;. Density varies gradually over a wide band, so many samples
+  along each ray receive useful gradients even when the surface starts in the wrong place. With low &beta;, only samples
+  extremely close to the current surface get gradient, so optimization is unstable and can stall.</li>
+  <li><b>More accurate surface with low or high &beta;?</b> Low &beta; (once training succeeds), because the rendered geometry is
+  then a thin shell at the true zero level set instead of a thick, blurred band.</li>
+</ol>
+
+<p><b>Experiments and chosen settings.</b> With the default settings (&alpha; = 10, &beta; = 0.05) the color renders looked
+fine, but the extracted mesh had a large lumpy "floor" of spurious surface around the object. At initialization the network
+outputs SDF &asymp; 0 everywhere, so the whole scene starts as surface, and because the background is black the network learns
+to paint that surface black instead of removing it. I added a <b>sphere prior</b>: the MLP predicts a residual on top of the SDF
+of a radius-1 sphere (d = MLP(x) + &Vert;x&Vert; &minus; 1), so space far from the object starts out empty. This removed the
+spurious geometry. I then swept &beta; with the prior:</p>
+<table>
+  <tr><th>Setting</th><th>Test PSNR</th><th>Geometry</th></tr>
+  <tr><td>No prior, &beta; = 0.05</td><td>21.17 dB</td><td>large spurious surface around the object</td></tr>
+  <tr><td>Sphere prior, &beta; = 0.1</td><td>20.47 dB</td><td>clean but blobby, rounded base</td></tr>
+  <tr><td>Sphere prior, &beta; = 0.05</td><td>20.90 dB</td><td>clean, slightly rounded base</td></tr>
+  <tr><td><b>Sphere prior, &beta; = 0.02</b></td><td><b>21.36 dB</b></td><td><b>sharpest: flat rectangular base, crisp scoop</b></td></tr>
+</table>
+<p>The best setting is <b>&alpha; = 10, &beta; = 0.02 with the sphere prior</b> (250 epochs, lr 5e-4, eikonal weight 0.02).
+The trend matches the analysis above: lower &beta; gives a sharper, more accurate surface, and the sphere prior is what makes
+the low-&beta; setting trainable by giving it a sensible starting surface. VolSDF's PSNR is a little below the density NeRF's
+(21.4 vs. 23.1 dB) because it is constrained to a single clean surface, in exchange for well-defined geometry.</p>
+<div class="row">
+  <figure><img src="data/q4_3_geometry.gif" alt="best geometry" width="256"><figcaption>Best: geometry (&beta; = 0.02, sphere prior)</figcaption></figure>
+  <figure><img src="data/q4_3_color.gif" alt="best color" width="256"><figcaption>Best: color (&beta; = 0.02, sphere prior)</figcaption></figure>
+</div>
+<div class="row">
+  <figure><img src="data/q4_3_noprior_geometry.gif" alt="no prior geometry" width="200"><figcaption>No prior, &beta; = 0.05</figcaption></figure>
+  <figure><img src="data/q4_3_b005_geometry.gif" alt="beta 0.05 geometry" width="200"><figcaption>Sphere prior, &beta; = 0.05</figcaption></figure>
+  <figure><img src="data/q4_3_b01_geometry.gif" alt="beta 0.1 geometry" width="200"><figcaption>Sphere prior, &beta; = 0.1</figcaption></figure>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="q5">5. 3D Gaussian Rasterization</h2>
+<p>Each 3D Gaussian's covariance is &Sigma; = R S S<sup>T</sup> R<sup>T</sup> (s&sup2;I in the isotropic case). It is projected to
+a 2D covariance &Sigma;' = J W &Sigma; W<sup>T</sup> J<sup>T</sup>, and its mean is projected to pixel coordinates with
+<code>transform_points_screen</code>. Gaussians are sorted by camera-space depth, and those behind the camera are discarded.
+For every pixel, &alpha; = o&middot;exp(&minus;&frac12;(x&minus;&mu;')<sup>T</sup>&Sigma;'<sup>&minus;1</sup>(x&minus;&mu;')),
+T is the cumulative product of (1 &minus; &alpha;) over closer Gaussians, and color, depth and mask are &sum;c&alpha;T,
+&sum;z&alpha;T and &sum;&alpha;T. All 4 unit tests pass, and the frame from the same camera as the reference image is
+pixel-identical to it.</p>
+<div class="row wide"><figure><img src="data/q5_render.gif" alt="q5 render" style="width:100%;max-width:768px"><figcaption>Pre-trained chair: color | depth | mask (DC color only)</figcaption></figure></div>
+
+<!-- ============================================================ -->
+<h2 id="q6">6. Training 3D Gaussian Representations</h2>
+<table>
+  <tr><th>Parameter</th><th>Learning rate (Adam, eps 1e-15)</th></tr>
+  <tr><td>opacities (pre-sigmoid)</td><td>0.05</td></tr>
+  <tr><td>scales (log)</td><td>0.005</td></tr>
+  <tr><td>colours</td><td>0.02</td></tr>
+  <tr><td>means</td><td>0.0005</td></tr>
+</table>
+<table>
+  <tr><th>Iterations</th><th>Loss</th><th>Mean PSNR (test)</th><th>Mean SSIM (test)</th></tr>
+  <tr><td>1000</td><td>L1</td><td><b>29.906</b></td><td><b>0.942</b></td></tr>
+</table>
+<p>Means get the smallest learning rate because small moves shift a Gaussian across many pixels, while colors (initialized
+randomly) and opacities can change faster. To train on an 8 GB laptop GPU, I added gradient checkpointing to the mini-batched
+splatting in <code>Scene.render</code>: each mini-batch's intermediates are recomputed during the backward pass instead of
+stored. This lowered peak memory from ~15 GB to ~3.5 GB (run with <code>--gaussians_per_splat 2048</code>).</p>
+<div class="row wide"><figure><img src="data/q6_training_progress.gif" alt="training progress" style="width:100%;max-width:768px"><figcaption>Training progress: renders (top) vs. ground truth (bottom)</figcaption></figure></div>
+<div class="row"><figure><img src="data/q6_final_renders.gif" alt="final renders" width="320"><figcaption>Final renders of the training views</figcaption></figure></div>
+
+<!-- ============================================================ -->
+<h2 id="q7">7. Extensions</h2>
+
+<h3>7.1 Rendering Using Spherical Harmonics</h3>
+<p>Each pre-trained Gaussian stores 16 SH coefficients per color channel (degrees 0&ndash;3, 48 numbers). For every Gaussian I
+compute the unit direction from the camera center to its mean, evaluate the 16 real SH basis polynomials at that direction,
+and take the coefficient-weighted sum plus 0.5, clamped at 0 (a vectorized version of the reference <code>get_color</code>).
+As a check, keeping only the degree-0 coefficient reproduces the Q5 DC colors exactly.</p>
+<div class="row wide">
+  <figure><img src="data/q5_render.gif" alt="DC only" style="width:100%"><figcaption>Q5: DC color only</figcaption></figure>
+  <figure><img src="data/q7_1_sh_render.gif" alt="full SH" style="width:100%"><figcaption>Q7.1: full spherical harmonics (degree 3)</figcaption></figure>
+</div>
+
+<p>Side-by-side comparisons of the same frame (left: DC only, right: full SH):</p>
+<div class="row wide">
+  <figure><img src="data/q7_1_compare_000.png" alt="frame 0" style="width:100%"><figcaption>Frame 0: front view</figcaption></figure>
+  <figure><img src="data/q7_1_compare_014.png" alt="frame 14" style="width:100%"><figcaption>Frame 14: oblique view from above</figcaption></figure>
+</div>
+<div class="row wide">
+  <figure><img src="data/q7_1_compare_008.png" alt="frame 8" style="width:100%"><figcaption>Frame 8: looking down onto the seat</figcaption></figure>
+  <figure><img src="data/q7_1_compare_020.png" alt="frame 20" style="width:100%"><figcaption>Frame 20: view from underneath</figcaption></figure>
+</div>
+<ul>
+  <li><b>Frame 0 (front).</b> With DC only the upholstery is a flat, uniform light green. With SH it is a deeper green with
+  visible shading, and the gold embroidery stands out more against it. The DC term is the average color over all viewing
+  directions, so it washes out the darker appearance seen from this side.</li>
+  <li><b>Frame 14 (oblique, above).</b> The largest difference of all 32 frames. SH adds a shading gradient across the back
+  cushion and seat, darker where the fabric faces away from the viewer, plus brighter highlights on the gilded wood of the arms.
+  The DC version has none of this variation, so the chair looks flatter and less three-dimensional.</li>
+  <li><b>Frame 8 (looking down).</b> The seat and back render darker and more saturated with SH, and the white frame picks up
+  gray shading. The difference is again view-dependent shading that a single constant color per Gaussian cannot express.</li>
+  <li><b>Frame 20 (underneath).</b> Almost no visible difference: the mean per-pixel change is ~2/255 here vs. ~7/255 for views
+  from above. The chair was presumably never captured from below, so the higher-order coefficients carry little information for
+  these directions and the color is dominated by the DC term. The streaky artifacts on the legs are present in both renders,
+  so they come from poorly constrained geometry, not from the color model.</li>
+</ul>
+
+<h3>7.2 Training on a Harder Scene</h3>
+<p>The materials scene is trained from <b>random initialization</b> (<code>init_type="random"</code>: 10,000 Gaussians with means
+drawn from a normal distribution of std 0.2 around the origin) at 128&times;128. Both runs use gradient-checkpointed
+splatting on an 8 GB laptop GPU.</p>
+
+<table>
+  <tr><th>Run</th><th>Gaussians</th><th>Learning rates</th><th>Loss</th><th>Iterations</th><th>Mean PSNR</th><th>Mean SSIM</th></tr>
+  <tr><td>Baseline (Q6 setup)</td><td>isotropic</td>
+      <td>opacities 0.05, scales 0.005, colours 0.02, means 0.0005</td><td>L1</td><td>1000</td><td>18.115</td><td>0.674</td></tr>
+  <tr><td><b>Improved</b></td><td>anisotropic</td>
+      <td>opacities 0.05, scales 0.005, colours 0.02, quats 0.001, means 0.002 &rarr; 0.00002 (exponential decay)</td>
+      <td>0.8&middot;L1 + 0.2&middot;(1 &minus; SSIM)</td><td>3000</td><td><b>23.082</b></td><td><b>0.854</b></td></tr>
+</table>
+
+<div class="row wide"><figure><img src="data/q7_2_compare.png" alt="baseline vs improved vs ground truth" style="width:100%;max-width:768px"><figcaption>End of training, same 4 views. Top: baseline. Middle: improved. Bottom: ground truth.</figcaption></figure></div>
+
+<div class="row wide">
+  <figure><img src="data/q7_2_baseline_progress.gif" alt="baseline progress" style="width:100%"><figcaption>Baseline training progress (renders top, ground truth bottom)</figcaption></figure>
+  <figure><img src="data/q7_2_improved_progress.gif" alt="improved progress" style="width:100%"><figcaption>Improved training progress (renders top, ground truth bottom; every 3rd frame shown)</figcaption></figure>
+</div>
+<div class="row">
+  <figure><img src="data/q7_2_baseline_final.gif" alt="baseline final" width="256"><figcaption>Baseline: final renders of the training views</figcaption></figure>
+  <figure><img src="data/q7_2_improved_final.gif" alt="improved final" width="256"><figcaption>Improved: final renders of the training views</figcaption></figure>
+</div>
+
+<p><b>Comparison.</b> The baseline never recovers the scene layout. Its Gaussians stay clumped near the origin, where they were
+initialized, and the objects further out appear only as faint, blurry blobs because no Gaussians reach them in 1000 iterations
+with a small means learning rate. The improved model places all twelve objects correctly with the right colors and visible
+material differences (metallic, glossy, matte). PSNR improves by about 5 dB and SSIM by 0.18. The remaining errors are mostly
+slightly fuzzy, spiky silhouettes and missing fine specular detail, since colors are view-independent here.</p>
+
+<p><b>Modifications compared with the Q6 setup</b> (all used together in the improved run; I did not have time for a per-change
+ablation):</p>
+<ol>
+  <li><b>Wider random initialization</b> (means std 0.2 &rarr; 0.6). The default puts every Gaussian in a small ball, while the
+  objects are spread over roughly &plusmn;1 units. Starting the Gaussians spread over the scene means they only need to make
+  small moves to reach an object, instead of traveling across the whole scene.</li>
+  <li><b>Higher means learning rate with exponential decay</b> (0.002 decaying to 1% by the end, as in the original paper's
+  position schedule). Early on, Gaussians need large steps to move to the right objects. Later, small steps let them settle
+  precisely without jitter. The fixed 0.0005 from Q6 was tuned for a point-cloud initialization that is already almost correct.</li>
+  <li><b>L1 + SSIM loss</b> (0.8 / 0.2, the weighting used by the original paper). The SSIM term rewards correct local structure
+  (edges, contrast) and not only per-pixel color, which gives sharper object boundaries. I implemented a differentiable SSIM
+  with an 11&times;11 Gaussian window and checked it against scikit-image.</li>
+  <li><b>Anisotropic Gaussians</b> (3 scales + a rotation per Gaussian; quaternion learning rate 0.001). Ellipsoids can flatten
+  onto the curved object surfaces and stretch along edges, so the same 10,000 Gaussians cover the surfaces better than spheres.</li>
+  <li><b>Longer training</b> (1000 &rarr; 3000 iterations). Starting from random initialization needs more steps to converge.
+  The improved run took 59 min vs. 25 min for the baseline.</li>
+</ol>
+
+</body>
+</html>

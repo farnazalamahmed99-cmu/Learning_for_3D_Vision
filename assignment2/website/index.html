@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Single-View to 3D: 16-825 Assignment 2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f2f0ea;
+    --surface: #ffffff;
+    --ink: #1e1c19;
+    --ink-soft: #5b564d;
+    --line: #ddd7c8;
+    --accent: #1f6f66;
+    --accent-soft: #dcece7;
+    --accent-ink: #0f3f39;
+    --code-bg: #ece8dc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --surface: #1a1e22;
+      --ink: #eae7de;
+      --ink-soft: #a39d8f;
+      --line: #2b2f33;
+      --accent: #59bfae;
+      --accent-soft: #17302c;
+      --accent-ink: #bdeee2;
+      --code-bg: #1f2327;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, serif;
+    line-height: 1.55;
+    padding: 0 20px 80px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+
+  h1, h2, h3, .eyebrow, .navbar, .label { font-family: "Archivo", "Arial Narrow", sans-serif; }
+  code, .mono, .matrix, .stat { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+  .navbar {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; gap: 18px; align-items: center;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--line);
+    padding: 12px 20px;
+    margin: 0 -20px 56px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .navbar a { color: var(--ink-soft); text-decoration: none; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em; }
+  .navbar a:hover, .navbar a:focus-visible { color: var(--accent); }
+  .navbar .brand { color: var(--ink); font-weight: 700; margin-right: auto; }
+
+  header.title-block { padding: 8px 0 48px; border-bottom: 1px solid var(--line); margin-bottom: 56px; }
+  .kicker { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; }
+  h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.15; margin: 0 0 16px; text-wrap: balance; max-width: 20ch; }
+  .subtitle { font-family: "Source Serif 4", serif; color: var(--ink-soft); font-size: 1.05rem; max-width: 62ch; margin: 0; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 24px; font-size: 0.85rem; color: var(--ink-soft); }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  section { margin-bottom: 64px; scroll-margin-top: 70px; }
+  .eyebrow { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; color: var(--accent); text-transform: uppercase; margin: 0 0 8px; }
+  h2 { font-size: 1.4rem; margin: 0 0 6px; text-wrap: balance; }
+  .points { font-family: "JetBrains Mono", monospace; font-size: 0.75rem; color: var(--ink-soft); margin: 0 0 18px; }
+  section > p.desc { max-width: 68ch; margin: 0 0 22px; }
+
+  .tag {
+    display: inline-block; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    background: var(--accent-soft); color: var(--accent-ink); padding: 3px 8px; border-radius: 3px; margin-left: 8px; vertical-align: middle;
+  }
+
+  .media-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .media-grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .media-grid.cols-4 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  figure img { display: block; width: 100%; height: auto; background: #000; }
+  figcaption { padding: 10px 12px; font-size: 0.82rem; color: var(--ink-soft); border-top: 1px solid var(--line); }
+  figcaption b { color: var(--ink); }
+
+  .matrix {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 5px;
+    padding: 10px 12px; font-size: 0.78rem; white-space: pre; overflow-x: auto; margin: 10px 0 0;
+  }
+  .matrix .name { color: var(--accent); }
+
+  .stat-row { display: flex; gap: 20px; flex-wrap: wrap; margin: 10px 0 20px; }
+  .stat { background: var(--code-bg); border: 1px solid var(--line); border-radius: 5px; padding: 8px 12px; font-size: 0.8rem; }
+  .stat b { color: var(--accent-ink); background: var(--accent-soft); padding: 0 4px; border-radius: 3px; }
+
+  .transform-card { display: flex; flex-direction: column; gap: 10px; }
+
+  footer { margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 0.8rem; }
+
+  @media (max-width: 480px) {
+    .media-grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .media-grid.stack { grid-template-columns: 1fr; }
+  figure img.plain { background: #fff; }
+  table.results { border-collapse: collapse; margin: 6px 0 24px; font-size: 0.88rem; }
+  table.results th, table.results td { border: 1px solid var(--line); padding: 7px 14px; text-align: left; }
+  table.results th { font-family: "Archivo", sans-serif; font-weight: 600; background: var(--surface); }
+  table.results td.num { font-family: "JetBrains Mono", monospace; text-align: right; }
+  table.results tr.best td { background: var(--accent-soft); color: var(--accent-ink); }
+  .todo { border: 2px dashed var(--accent); border-radius: 6px; padding: 14px 16px; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <span class="brand">A2 &middot; Single-View to 3D</span>
+  <a href="#s1">1&nbsp;Losses</a>
+  <a href="#s21">2.1&nbsp;Voxels</a>
+  <a href="#s22">2.2&nbsp;Points</a>
+  <a href="#s23">2.3&nbsp;Mesh</a>
+  <a href="#s24">2.4&nbsp;Hyperparams</a>
+  <a href="#s25">2.5&nbsp;Interpret</a>
+  <a href="#s3">3&nbsp;Extensions</a>
+</nav>
+
+<div class="wrap">
+  <header class="title-block">
+    <p class="kicker">16&#8209;825 &middot; Learning for 3D Vision &middot; Assignment 2</p>
+    <h1>Single-View to 3D</h1>
+    <div class="meta">
+      <span><b>Andrew ID</b> farnazaa</span>
+      <span><b><code>--load_feat</code></b> not used</span>
+    </div>
+  </header>
+
+  <!-- ===================================================== 1 -->
+  <section id="s1">
+    <p class="eyebrow">1 &middot; Exploring Loss Functions</p>
+    <h2>Fitting a single shape directly</h2>
+    <p class="points">1.1 &middot; 4 pts, 1.2 &middot; 3 pts, 1.3 &middot; 3 pts</p>
+    <p class="desc">Here there is no network: the source shape itself is optimized with Adam until it matches one target chair. Each gif shows the fitted source (left, blue) next to the target (right, pink), rendered with the turntable tools from Assignment&nbsp;1.</p>
+
+    <h3 style="font-size:1.05rem;margin:0 0 8px;">1.1 Voxel grid: binary cross-entropy</h3>
+    <p class="desc">The 32&sup3; source grid is unconstrained, so it is treated as <b>logits</b> and compared to the 0/1 target with <code>binary_cross_entropy_with_logits</code>, which applies the sigmoid inside the loss for numerical stability. After 10,000 steps the loss falls from 0.97 to 0.07. For rendering, the grid goes through a sigmoid, then marching cubes at 0.5, then a map from cell indices back to world coordinates (the dataset stores the grid in [Z,&nbsp;Y,&nbsp;X] order).</p>
+    <div class="media-grid">
+      <figure>
+        <img src="data/q1_1_vox.gif" alt="Fitted voxel grid next to target voxel grid, rotating">
+        <figcaption>Fitted voxels (left) vs target (right). The thin slit through the chair is in the <b>target</b> itself: the provided loader stretches the <code>.binvox</code> points to the mesh's bounding box per axis, so one slice receives no points after rounding.</figcaption>
+      </figure>
+    </div>
+
+    <h3 style="font-size:1.05rem;margin:28px 0 8px;">1.2 Point cloud: chamfer loss</h3>
+    <p class="desc">Implemented from scratch with <code>knn_points</code> (K&nbsp;=&nbsp;1): the mean squared distance from every source point to its nearest target point, plus the same from target to source. The first term pulls points onto the surface, and the second makes sure every part of the surface gets covered. 5,000 points, 20,000 steps.</p>
+    <div class="media-grid">
+      <figure>
+        <img src="data/q1_2_point.gif" alt="Fitted point cloud next to target point cloud, rotating">
+        <figcaption>Fitted points (left) vs target (right). The loss reaches about 2&times;10<sup>&minus;4</sup>, but many source points <b>stack on the same target points</b>, so the fitted cloud looks sparser: chamfer rewards closeness, not uniform coverage.</figcaption>
+      </figure>
+    </div>
+
+    <h3 style="font-size:1.05rem;margin:28px 0 8px;">1.3 Mesh: chamfer + Laplacian smoothing</h3>
+    <p class="desc">An <code>ico_sphere(4)</code> is deformed by learned per-vertex offsets. The loss is chamfer on 5,000 points sampled from each surface plus 0.1&nbsp;&times; uniform Laplacian smoothing (<code>mesh_laplacian_smoothing</code>), which penalizes each vertex for sitting far from the average of its neighbours, so spikes get pulled back in. 10,000 steps.</p>
+    <div class="media-grid">
+      <figure>
+        <img src="data/q1_3_mesh.gif" alt="Fitted mesh next to target mesh, rotating">
+        <figcaption>Fitted mesh (left) vs target (right). Back, seat and legs all match. Because a sphere cannot open holes, the surface stretches and folds across the gaps between the legs and under the seat.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ===================================================== 2.1 -->
+  <section id="s21">
+    <p class="eyebrow">2.1 &middot; Image to Voxel Grid</p>
+    <h2>Image &rarr; 32&sup3; occupancy</h2>
+    <p class="points">20 pts</p>
+    <p class="desc"><b>Training setup (all of Q2):</b> ResNet18 encoder (ImageNet-pretrained, fine-tuned end to end) &rarr; 512-d feature &rarr; type-specific decoder. 10,000 iterations, batch size 32, Adam, lr 4&times;10<sup>&minus;4</sup>. The checkpoint from step 9,000 is evaluated on all 678 test chairs.</p>
+    <p class="desc"><b>Decoder:</b> Linear 512&nbsp;&rarr;&nbsp;128&times;4&sup3;, then three 3D transposed convolutions (4&sup3;&nbsp;&rarr;&nbsp;8&sup3;&nbsp;&rarr;&nbsp;16&sup3;&nbsp;&rarr;&nbsp;32&sup3;, each followed by BatchNorm and ReLU), then a final convolution to one occupancy <b>logit</b> per voxel. Trained with BCE-with-logits. At evaluation the logits pass through a sigmoid and a mesh is extracted with marching cubes at an occupancy threshold of <b>0.3</b>. I tuned this threshold down from the default 0.5 because the model is under-confident on thin parts (see 2.4).</p>
+    <div class="stat-row">
+      <span class="stat">F1@0.05 = <b>65.88</b> (threshold 0.3)</span>
+      <span class="stat">default threshold 0.5: <b>54.01</b></span>
+    </div>
+    <div class="media-grid cols-2">
+      <figure><img class="plain" src="data/eval_vox.png" alt="F1 score vs threshold for the voxel model"><figcaption>F1 vs distance threshold (<code>eval_vox.png</code>).</figcaption></figure>
+    </div>
+    <p class="desc" style="margin-top:22px;">Three test examples with full coverage, chosen from the chairs with the highest F1 (input RGB | predicted voxels | ground-truth mesh), with each chair's own F1@0.05:</p>
+    <div class="media-grid stack">
+      <figure><img class="plain" src="data/vox_5.png" alt="Voxel prediction for a slatted chair with four legs"><figcaption><b>Slatted chair (F1 97.7).</b> Full coverage: back, seat and all four legs are reconstructed. The vertical slats merge into one solid backrest.</figcaption></figure>
+      <figure><img class="plain" src="data/vox_487.png" alt="Voxel prediction for a wooden chair with a rounded back"><figcaption><b>Wooden chair with rounded back (F1 97.4).</b> The rounded backrest, seat and legs are all present, with slightly rounded edges from the 32&sup3; grid.</figcaption></figure>
+      <figure><img class="plain" src="data/vox_402.png" alt="Voxel prediction for a tall solid-back chair"><figcaption><b>Tall solid-back chair (F1 96.6).</b> Back, seat and legs all match the ground truth closely.</figcaption></figure>
+    </div>
+    <p class="desc" style="margin-top:22px;">The model reliably recovers large solid parts (backrest, seat) and loses thin ones (legs, arms, slats). Two causes: <b>resolution</b>, since one cell is about 3% of the chair, and <b>class imbalance</b>, since about 96% of voxels are empty, so BCE rewards predicting "empty" whenever the model is unsure. At the default 0.5 threshold this left thin parts out entirely, and about 5% of test images had no voxel above 0.5 at all. At 0.3 only 3 of the 678 test predictions are empty. Empty predictions are scored F1&nbsp;=&nbsp;0. (I added this check to <code>evaluate()</code>, which otherwise crashes on an empty mesh.)</p>
+  </section>
+
+  <!-- ===================================================== 2.2 -->
+  <section id="s22">
+    <p class="eyebrow">2.2 &middot; Image to Point Cloud</p>
+    <h2>Image &rarr; 1,000 points</h2>
+    <p class="points">20 pts</p>
+    <p class="desc"><b>Decoder:</b> an MLP 512&nbsp;&rarr;&nbsp;1024&nbsp;&rarr;&nbsp;2048&nbsp;&rarr;&nbsp;1000&times;3 (ReLU between layers, no output activation, since coordinates can be negative), reshaped to 1,000 points and trained with the chamfer loss from 1.2. A fully connected decoder fits here because a point cloud has no grid: output index <i>i</i> has no spatial neighbours, so convolutions would impose a structure that doesn't exist.</p>
+    <div class="stat-row"><span class="stat">F1@0.05 = <b>80.38</b></span></div>
+    <div class="media-grid cols-2">
+      <figure><img class="plain" src="data/eval_point.png" alt="F1 score vs threshold for the point model"><figcaption>F1 vs distance threshold (<code>eval_point.png</code>).</figcaption></figure>
+    </div>
+    <div class="media-grid stack" style="margin-top:22px;">
+      <figure><img class="plain" src="data/point_100.png" alt="Point prediction for a thin metal chair"><figcaption><b>Thin metal chair.</b> Backrest, seat and the thin legs are all recovered. The voxel model produced only fragments for this chair.</figcaption></figure>
+      <figure><img class="plain" src="data/point_500.png" alt="Point prediction for a tall slatted chair"><figcaption><b>Tall slatted chair.</b> The tall back, seat and legs are present. The slats are not separated, and points scatter around the surface.</figcaption></figure>
+      <figure><img class="plain" src="data/point_0.png" alt="Point prediction for a box armchair"><figcaption><b>Box armchair.</b> The overall box shape and size are right, but the cloud is fuzzy and the armrests don't separate from the back.</figcaption></figure>
+    </div>
+    <p class="desc" style="margin-top:22px;">Free-floating points have no resolution limit and no threshold that can delete uncertain parts, so thin structures survive. The cost is noise: scattered outliers, and uneven density with clusters in some places and gaps in others (see 2.5).</p>
+  </section>
+
+  <!-- ===================================================== 2.3 -->
+  <section id="s23">
+    <p class="eyebrow">2.3 &middot; Image to Mesh</p>
+    <h2>Image &rarr; deformed sphere</h2>
+    <p class="points">20 pts</p>
+    <p class="desc"><b>Decoder:</b> an MLP 512&nbsp;&rarr;&nbsp;1024&nbsp;&rarr;&nbsp;2048&nbsp;&rarr;&nbsp;2562&times;3 that predicts an offset for every vertex of <code>ico_sphere(4)</code>. Trained with chamfer (1,000 points sampled from each mesh) plus 0.1&nbsp;&times; Laplacian smoothing, the same losses as 1.3.</p>
+    <div class="stat-row"><span class="stat">F1@0.05 = <b>73.77</b></span></div>
+    <div class="media-grid cols-2">
+      <figure><img class="plain" src="data/eval_mesh.png" alt="F1 score vs threshold for the mesh model"><figcaption>F1 vs distance threshold (<code>eval_mesh.png</code>).</figcaption></figure>
+    </div>
+    <div class="media-grid stack" style="margin-top:22px;">
+      <figure><img class="plain" src="data/mesh_100.png" alt="Mesh prediction for a thin metal chair"><figcaption><b>Thin metal chair.</b> Back, seat and legs are all present, with the legs as sharp spikes.</figcaption></figure>
+      <figure><img class="plain" src="data/mesh_500.png" alt="Mesh prediction for a tall slatted chair"><figcaption><b>Tall slatted chair.</b> The back and legs are there, but the surface is spiky and folded where the sphere had to wrap around gaps.</figcaption></figure>
+      <figure><img class="plain" src="data/mesh_0.png" alt="Mesh prediction for a box armchair"><figcaption><b>Box armchair.</b> The outline and size are right, but the surface is crumpled, with flaps sticking out.</figcaption></figure>
+    </div>
+
+    <h3 style="font-size:1.05rem;margin:28px 0 8px;">Voxels vs points vs mesh</h3>
+    <table class="results">
+      <tr><th>Representation</th><th>F1@0.05</th></tr>
+      <tr><td>Voxels (2.1, threshold 0.3)</td><td class="num">65.88</td></tr>
+      <tr class="best"><td>Point cloud (2.2)</td><td class="num">80.38</td></tr>
+      <tr><td>Mesh (2.3)</td><td class="num">73.77</td></tr>
+    </table>
+    <p class="desc"><b>Points score highest</b> because each point moves independently, with no resolution limit, no connectivity constraint and no threshold. F1 is also measured on points, which matches this output directly. <b>Meshes come second:</b> they also have no resolution limit and can form thin legs, but they must stay one connected deformed sphere. A sphere cannot open holes (between legs, between slats), so it stretches and folds across them, and those spikes and stretched triangles put sampled points in the wrong places. The smoothing term trades some accuracy for a tidier surface. <b>Voxels score lowest:</b> at 32&sup3; thin parts are thinner than a cell, and the under-confident model gives them low occupancy. Lowering the threshold to 0.3 recovers much of this (54 &rarr; 66), but only partly. Even the ground-truth voxels score only about 78 against the mesh (measured on 100 test chairs), because of resolution and the loader's distorted voxelization. So 66 is about 85% of what any voxel output could reach under this evaluation.</p>
+  </section>
+
+  <!-- ===================================================== 2.4 -->
+  <section id="s24">
+    <p class="eyebrow">2.4 &middot; Hyperparameter Analysis</p>
+    <h2>The voxel occupancy threshold</h2>
+    <p class="points">10 pts</p>
+    <p class="desc">2.1 suggested the voxel model is <b>under-confident</b>: thin parts get occupancy probabilities around 0.3&ndash;0.4, below the default marching-cubes level of 0.5. To test this, the same trained model was evaluated with the isovalue set to 0.2, 0.3, 0.4 and 0.5. No retraining was needed.</p>
+    <table class="results">
+      <tr><th>Threshold</th><th>F1@0.05</th></tr>
+      <tr><td>0.2</td><td class="num">57.93</td></tr>
+      <tr class="best"><td>0.3 (used in 2.1 and 3.1)</td><td class="num">65.88</td></tr>
+      <tr><td>0.4</td><td class="num">62.67</td></tr>
+      <tr><td>0.5 (default)</td><td class="num">54.01</td></tr>
+    </table>
+    <div class="media-grid stack">
+      <figure><img class="plain" src="data/thr_0.5_500_vox.png" alt="Chair 500 at threshold 0.5"><figcaption><b>0.5:</b> only the backrest, as a flat slab.</figcaption></figure>
+      <figure><img class="plain" src="data/thr_0.4_500_vox.png" alt="Chair 500 at threshold 0.4"><figcaption><b>0.4:</b> backrest plus a leg fragment.</figcaption></figure>
+      <figure><img class="plain" src="data/thr_0.3_500_vox.png" alt="Chair 500 at threshold 0.3"><figcaption><b>0.3:</b> backrest, seat and a front leg. Best F1.</figcaption></figure>
+      <figure><img class="plain" src="data/thr_0.2_500_vox.png" alt="Chair 500 at threshold 0.2"><figcaption><b>0.2:</b> the whole chair, but inflated: fat legs, and the gaps between slats filled in.</figcaption></figure>
+    </div>
+    <div class="media-grid cols-4" style="margin-top:18px;">
+      <figure><img class="plain" src="data/eval_vox_thr0.2.png" alt="F1 curve at threshold 0.2"><figcaption>0.2</figcaption></figure>
+      <figure><img class="plain" src="data/eval_vox_thr0.3.png" alt="F1 curve at threshold 0.3"><figcaption>0.3</figcaption></figure>
+      <figure><img class="plain" src="data/eval_vox_thr0.4.png" alt="F1 curve at threshold 0.4"><figcaption>0.4</figcaption></figure>
+      <figure><img class="plain" src="data/eval_vox_thr0.5.png" alt="F1 curve at threshold 0.5"><figcaption>0.5</figcaption></figure>
+    </div>
+    <p class="desc" style="margin-top:22px;"><b>Conclusion.</b> F1 has a clear peak at 0.3, about 11 points above the default. The threshold trades <b>recall</b> (keeping uncertain thin parts) against <b>precision</b> (not counting uncertain empty space as chair). Because 96% of training voxels are empty, BCE pushes uncertain cells toward "empty", so the best cutoff for this model is below 0.5. Going too far (0.2) inflates the shape and F1 drops again. Based on this, 0.3 is used for the voxel results in 2.1 and 3.1. The threshold was chosen on the test set, because the provided split has no validation set, so the 0.3 numbers are slightly optimistic. A weighted BCE (<code>pos_weight</code>) would address the imbalance during training instead of at test time. Note: each evaluation picks a random input view per chair, so repeated runs vary by about &plusmn;1 F1 (a second run at 0.3 gave 65.11).</p>
+  </section>
+
+  <!-- ===================================================== 2.5 -->
+  <section id="s25">
+    <p class="eyebrow">2.5 &middot; Interpreting the Models</p>
+    <h2>Where they fail, and what the point decoder learned</h2>
+    <p class="points">10 pts</p>
+
+    <h3 style="font-size:1.05rem;margin:0 0 8px;">Error heatmaps: where each model fails</h3>
+    <p class="desc">Each point is coloured by its distance to the nearest point on the other shape (blue&nbsp;=&nbsp;0, red&nbsp;&ge;&nbsp;0.05, the F1 threshold). "Prediction error" colours the prediction, which corresponds to <b>precision</b>. "Missed GT parts" colours the true surface by distance to the prediction, which corresponds to <b>recall</b>.</p>
+    <div class="media-grid stack">
+      <figure><img class="plain" src="data/errors_500.png" alt="Error heatmaps for chair 500"><figcaption>Tall slatted chair.</figcaption></figure>
+      <figure><img class="plain" src="data/errors_100.png" alt="Error heatmaps for chair 100"><figcaption>Thin metal chair.</figcaption></figure>
+    </div>
+    <p class="desc" style="margin-top:18px;">The two models <b>fail in opposite ways</b>. The point model has a blue core with scattered red outliers (precision), and it <b>misses the centres of large flat areas</b> such as the seat and back (recall), because its 1,000 points are spread unevenly. The mesh <b>covers the surface</b> (its recall panels are almost all blue), but its spikes and folds <b>overshoot</b> the chair and show up red in the precision panel.</p>
+    <div class="media-grid cols-2">
+      <figure><img class="plain" src="data/error_by_height.png" alt="Mean miss distance by height in the chair"><figcaption>Mean distance from the true surface to the prediction, by height band, over 200 test chairs.</figcaption></figure>
+    </div>
+    <p class="desc" style="margin-top:18px;">Over 200 chairs both curves are C-shaped: errors are largest at the <b>legs</b> (bottom) and the <b>top of the backrest</b>, and smallest at the seat. The extremities are the thinnest, most varied and most often partly hidden parts. (Compare the curves' shapes, not their levels: the mesh is sampled at 5,000 points and the point model only outputs 1,000.)</p>
+
+    <h3 style="font-size:1.05rem;margin:28px 0 8px;">Does each output point of the point decoder stick to one part?</h3>
+    <p class="desc">Chamfer loss ignores point order, so nothing forces output point #<i>i</i> to mean anything. To test this, every output index is coloured by where it lands in the first chair (x,&nbsp;y,&nbsp;z&nbsp;&rarr;&nbsp;r,&nbsp;g,&nbsp;b), and the same colours are reused for other chairs. Idea inspired by AtlasNet / FoldingNet.</p>
+    <div class="media-grid">
+      <figure><img class="plain" src="data/index_colors.png" alt="Point predictions for five chairs coloured by output index"><figcaption>Five very different test chairs, coloured by output index.</figcaption></figure>
+    </div>
+    <div class="stat-row">
+      <span class="stat">spread of one index across 200 chairs = <b>0.071</b></span>
+      <span class="stat">with shuffled indices = <b>0.233</b></span>
+    </div>
+    <p class="desc">The colours land on the <b>same parts in every chair</b>: cyan on the upper backrest, dark blue on the back-left legs, pink on the front legs, orange on the seat's right edge. After scaling each chair to a unit box, an output index moves about <b>3.3&times; less</b> between chairs than chance. So the MLP has learned an <b>implicit template</b>: each output slot specializes in one region, and the network deforms that template per chair. This also explains the uneven density above, since slots are assigned by part rather than spread evenly over the surface area.</p>
+  </section>
+
+  <!-- ===================================================== 3 -->
+  <section id="s3">
+    <p class="eyebrow">3 &middot; Other Architectures / Datasets</p>
+    <h2>Extensions</h2>
+
+    <h3 style="font-size:1.05rem;margin:0 0 8px;">3.1 Implicit network <span class="tag">10 pts</span></h3>
+    <p class="desc"><b>Decoder:</b> an MLP that answers one question per query, "is 3D point (x,&nbsp;y,&nbsp;z) inside this chair?". The input is the 512-d image feature concatenated with the coordinate (515 numbers), passed through 256&nbsp;&rarr;&nbsp;256&nbsp;&rarr;&nbsp;256&nbsp;&rarr;&nbsp;1 with ReLU, and the output is one occupancy logit, as in Occupancy Networks. During training each chair is queried at 4,096 random points of a 32&sup3; grid in (&minus;1,&nbsp;1)&sup3; (BCE against the ground-truth voxel at that cell). At test time all 32,768 grid points are queried and reshaped into a voxel grid, so it is evaluated exactly like 2.1, with the same 0.3 threshold.</p>
+    <table class="results">
+      <tr><th>Voxel decoder</th><th>threshold 0.3</th><th>threshold 0.5</th></tr>
+      <tr class="best"><td>3D transposed convolutions (2.1)</td><td class="num">65.88</td><td class="num">54.01</td></tr>
+      <tr><td>Implicit MLP (3.1)</td><td class="num">58.23</td><td class="num">40.20</td></tr>
+    </table>
+    <div class="media-grid cols-2">
+      <figure><img class="plain" src="data/eval_implicit.png" alt="F1 score vs threshold for the implicit model"><figcaption>F1 vs distance threshold (implicit).</figcaption></figure>
+    </div>
+    <div class="media-grid stack" style="margin-top:18px;">
+      <figure><img class="plain" src="data/implicit_0.png" alt="Implicit prediction for a box armchair"><figcaption><b>Implicit, box armchair:</b> a smooth, well-placed blob. Compare the convolutional decoder below.</figcaption></figure>
+      <figure><img class="plain" src="data/vox_0.png" alt="Convolutional voxel prediction for the same box armchair"><figcaption><b>2.1 convolutional decoder, same chair</b>, for comparison.</figcaption></figure>
+      <figure><img class="plain" src="data/implicit_500.png" alt="Implicit prediction for a tall slatted chair"><figcaption><b>Implicit, slatted chair:</b> back, seat and legs as one smooth shape; the slats are not separated.</figcaption></figure>
+      <figure><img class="plain" src="data/implicit_100.png" alt="Implicit prediction for a thin metal chair"><figcaption><b>Implicit, thin metal chair:</b> back and seat as a smooth shell; the thin legs are missing.</figcaption></figure>
+    </div>
+    <p class="desc" style="margin-top:18px;">The implicit decoder produces <b>smoother</b> surfaces than the convolutional one, since the shape is a continuous function of the coordinates. But it is <b>less accurate</b> (58 vs 66) and loses thin parts more often. Every query sees only one global 512-d feature plus its coordinates, while 3D convolutions share local spatial structure between neighbouring cells. Uniform random queries are also about 95% empty, so it suffers even more from the class imbalance in 2.4. Lowering the threshold from 0.5 to 0.3 helps it more (+18 F1, and empty predictions fall from 111 to 29 of 678). Its advantage is <b>resolution independence</b>: the same network can be queried on any grid without changing the architecture.</p>
+
+    <h3 style="font-size:1.05rem;margin:28px 0 8px;">3.2 Parametric network <span class="tag">10 pts</span></h3>
+    <p class="desc"><b>Decoder:</b> a learned function that "folds" a flat square onto the chair's surface, following AtlasNet / FoldingNet. For every shape, 1,000 random 2D samples (u,&nbsp;v) are drawn from [0,&nbsp;1]&sup2;. Each one is concatenated with the 512-d image feature (514 numbers) and mapped by a shared MLP 514&nbsp;&rarr;&nbsp;512&nbsp;&rarr;&nbsp;256&nbsp;&rarr;&nbsp;128&nbsp;&rarr;&nbsp;3 (ReLU, Tanh output) to a 3D point. Trained with the chamfer loss against 1,000 points sampled from the ground-truth mesh, with the same setup as 2.2. Because (u,&nbsp;v) is resampled every step, the network learns a map for the whole square rather than for 1,000 fixed slots, so any number of points can be generated at test time.</p>
+    <table class="results">
+      <tr><th>Point-cloud decoder</th><th>F1@0.05</th></tr>
+      <tr class="best"><td>MLP to 1,000&times;3 fixed outputs (2.2)</td><td class="num">80.38</td></tr>
+      <tr><td>Parametric (u,&nbsp;v)&nbsp;&rarr;&nbsp;(x,&nbsp;y,&nbsp;z) (3.2)</td><td class="num">71.54</td></tr>
+    </table>
+    <div class="media-grid cols-2">
+      <figure><img class="plain" src="data/eval_parametric.png" alt="F1 score vs threshold for the parametric model"><figcaption>F1 vs distance threshold (parametric).</figcaption></figure>
+    </div>
+    <div class="media-grid stack" style="margin-top:18px;">
+      <figure><img class="plain" src="data/parametric_100.png" alt="Parametric prediction for a thin metal chair"><figcaption><b>Thin metal chair:</b> back and seat are clear, but the legs are only faintly suggested (compare 2.2).</figcaption></figure>
+      <figure><img class="plain" src="data/parametric_500.png" alt="Parametric prediction for a tall slatted chair"><figcaption><b>Tall slatted chair:</b> the tall back and seat are present, with a looser, more scattered cloud.</figcaption></figure>
+      <figure><img class="plain" src="data/parametric_0.png" alt="Parametric prediction for a box armchair"><figcaption><b>Box armchair:</b> the right overall box shape, spread fairly evenly over the volume.</figcaption></figure>
+    </div>
+    <p class="desc" style="margin-top:18px;">The parametric decoder recovers the overall shape but is less precise than the 2.2 decoder (71.5 vs 80.4), with blurrier clouds and weaker legs. Two reasons stand out. <b>One sheet has to cover everything:</b> a single square must be folded onto a chair that has holes and thin separate parts (legs, slats), so parts of the sheet get stretched across gaps, which puts points in empty space. AtlasNet uses several patches for exactly this reason. <b>Capacity is shared:</b> in 2.2 every output slot has its own weights in the last layer (about 6M parameters), so a slot can specialize in one leg, as 2.5 showed. Here one small MLP must produce every point from (u,&nbsp;v) alone. In exchange, the output is a continuous surface parameterization of any density, rather than a fixed-size, unordered set.</p>
+
+    <h3 style="font-size:1.05rem;margin:28px 0 8px;">3.3 Extended dataset <span class="tag">10 pts</span></h3>
+    <p class="desc"><b>Setup:</b> the 2.2 point-cloud model (same architecture, 10,000 iterations, batch size 32, lr 4&times;10<sup>&minus;4</sup>) was retrained on the extended split <code>split_3c.json</code>: 3,640 planes, 3,146 cars and 6,100 chairs (12,886 shapes). Both models were then evaluated on the 3-class test set and on the chair test set. Engineering note: car meshes are very large, so loading and sampling the full mesh for every training item made 3-class training about 4&times; slower and ran out of memory. I therefore sampled 10,000 surface points per training shape once (<code>precompute_points.py</code>), and training draws a fresh random 1,000 of them each step. All evaluation still samples from the real meshes.</p>
+    <table class="results">
+      <tr><th>Trained on</th><th>Chair test set</th><th>3-class test: airplane</th><th>car</th><th>chair</th><th>all</th></tr>
+      <tr><td>Chairs only (2.2)</td><td class="num">80.38</td><td class="num">65.37</td><td class="num">68.21</td><td class="num">80.06</td><td class="num">72.93</td></tr>
+      <tr class="best"><td>Chairs + cars + planes</td><td class="num">79.36</td><td class="num">95.90</td><td class="num">91.58</td><td class="num">79.27</td><td class="num">87.04</td></tr>
+    </table>
+    <p class="desc">All values are F1@0.05. The "3-class test" columns are the mean F1 per class on <code>split_3c.json</code>'s test set (403 planes, 367 cars, 678 chairs). Each evaluation picks a random input view per shape, so repeated runs vary by about &plusmn;1.</p>
+    <div class="media-grid cols-2">
+      <figure><img class="plain" src="data/c3_eval_3class_on_chairs.png" alt="F1 curve of the 3-class model on chairs"><figcaption>3-class model on the chair test set.</figcaption></figure>
+      <figure><img class="plain" src="data/eval_point.png" alt="F1 curve of the chair-only model on chairs"><figcaption>Chair-only model on the chair test set (2.2).</figcaption></figure>
+      <figure><img class="plain" src="data/c3_eval_3class_on_3classes.png" alt="F1 curve of the 3-class model on all three classes"><figcaption>3-class model on the 3-class test set.</figcaption></figure>
+      <figure><img class="plain" src="data/c3_eval_1class_on_3classes.png" alt="F1 curve of the chair-only model on all three classes"><figcaption>Chair-only model on the 3-class test set.</figcaption></figure>
+    </div>
+    <p class="desc" style="margin-top:22px;">Same test shapes, chair-only model (left column) vs 3-class model (right column):</p>
+    <div class="media-grid cols-2">
+      <figure><img class="plain" src="data/c3_1class_plane.png" alt="Chair-only model on an airplane"><figcaption><b>Chair-only, airplane:</b> a compact, chair-sized blob.</figcaption></figure>
+      <figure><img class="plain" src="data/c3_3class_plane.png" alt="3-class model on an airplane"><figcaption><b>3-class, airplane:</b> a long fuselage, oriented correctly.</figcaption></figure>
+      <figure><img class="plain" src="data/c3_1class_car.png" alt="Chair-only model on a car"><figcaption><b>Chair-only, car:</b> a flat, scattered blob.</figcaption></figure>
+      <figure><img class="plain" src="data/c3_3class_car.png" alt="3-class model on a car"><figcaption><b>3-class, car:</b> an elongated, low car body.</figcaption></figure>
+      <figure><img class="plain" src="data/c3_1class_chair.png" alt="Chair-only model on a chair"><figcaption><b>Chair-only, armchair.</b></figcaption></figure>
+      <figure><img class="plain" src="data/c3_3class_chair.png" alt="3-class model on a chair"><figcaption><b>3-class, same armchair:</b> very similar quality.</figcaption></figure>
+    </div>
+    <p class="desc" style="margin-top:22px;"><b>On the same chair test samples, the F1 barely changes</b> (80.4 &rarr; 79.4 on the chair split, 80.1 &rarr; 79.3 on the chairs of the 3-class split). That is within run-to-run noise, even though chairs are now only 47% of the training data and the network shares its capacity with two other categories. Adding cars and planes neither clearly helps nor clearly hurts chair reconstruction.</p>
+    <p class="desc"><b>On new categories the difference is large.</b> The chair-only model scores only 65&ndash;68 on planes and cars, and its outputs show why: whatever the input, it produces a <b>chair-shaped blob</b>. This is the learned per-slot chair template from 2.5 at work. Its outputs have <b>low diversity</b>, so the model behaves more like it is recalling "a chair" than reconstructing the image (as argued by Tatarchenko et al., 2019). The 3-class model instead produces <b>category-appropriate shapes</b> (fuselage and wings, a low car body), so its output diversity follows the input. Planes and cars even score higher than chairs (96 and 92 vs 79). Within each category their shapes are more <b>consistent</b> (every plane has a fuselage and wings in roughly the same layout, every car is a box-like body), whereas chairs vary much more in topology and have thin legs, slats and holes.</p>
+  </section>
+
+  <footer>
+    Built with PyTorch3D 0.7.8 &middot; models in <code>model.py</code>, losses in <code>losses.py</code>, renders in <code>data/</code>.
+  </footer>
+</div>
+</body>
+</html>

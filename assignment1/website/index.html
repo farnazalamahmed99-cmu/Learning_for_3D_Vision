@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rendering Basics with PyTorch3D: 16-825 Assignment 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f2f0ea;
+    --surface: #ffffff;
+    --ink: #1e1c19;
+    --ink-soft: #5b564d;
+    --line: #ddd7c8;
+    --accent: #1f6f66;
+    --accent-soft: #dcece7;
+    --accent-ink: #0f3f39;
+    --code-bg: #ece8dc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --surface: #1a1e22;
+      --ink: #eae7de;
+      --ink-soft: #a39d8f;
+      --line: #2b2f33;
+      --accent: #59bfae;
+      --accent-soft: #17302c;
+      --accent-ink: #bdeee2;
+      --code-bg: #1f2327;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, serif;
+    line-height: 1.55;
+    padding: 0 20px 80px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+
+  h1, h2, h3, .eyebrow, .navbar, .label { font-family: "Archivo", "Arial Narrow", sans-serif; }
+  code, .mono, .matrix, .stat { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+  .navbar {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; gap: 18px; align-items: center;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--line);
+    padding: 12px 20px;
+    margin: 0 -20px 56px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .navbar a { color: var(--ink-soft); text-decoration: none; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em; }
+  .navbar a:hover, .navbar a:focus-visible { color: var(--accent); }
+  .navbar .brand { color: var(--ink); font-weight: 700; margin-right: auto; }
+
+  header.title-block { padding: 8px 0 48px; border-bottom: 1px solid var(--line); margin-bottom: 56px; }
+  .kicker { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; }
+  h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.15; margin: 0 0 16px; text-wrap: balance; max-width: 20ch; }
+  .subtitle { font-family: "Source Serif 4", serif; color: var(--ink-soft); font-size: 1.05rem; max-width: 62ch; margin: 0; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 24px; font-size: 0.85rem; color: var(--ink-soft); }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  section { margin-bottom: 64px; scroll-margin-top: 70px; }
+  .eyebrow { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em; color: var(--accent); text-transform: uppercase; margin: 0 0 8px; }
+  h2 { font-size: 1.4rem; margin: 0 0 6px; text-wrap: balance; }
+  .points { font-family: "JetBrains Mono", monospace; font-size: 0.75rem; color: var(--ink-soft); margin: 0 0 18px; }
+  section > p.desc { max-width: 68ch; margin: 0 0 22px; }
+
+  .tag {
+    display: inline-block; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    background: var(--accent-soft); color: var(--accent-ink); padding: 3px 8px; border-radius: 3px; margin-left: 8px; vertical-align: middle;
+  }
+
+  .media-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .media-grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .media-grid.cols-4 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  figure img { display: block; width: 100%; height: auto; background: #000; }
+  figcaption { padding: 10px 12px; font-size: 0.82rem; color: var(--ink-soft); border-top: 1px solid var(--line); }
+  figcaption b { color: var(--ink); }
+
+  .matrix {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 5px;
+    padding: 10px 12px; font-size: 0.78rem; white-space: pre; overflow-x: auto; margin: 10px 0 0;
+  }
+  .matrix .name { color: var(--accent); }
+
+  .stat-row { display: flex; gap: 20px; flex-wrap: wrap; margin: 10px 0 20px; }
+  .stat { background: var(--code-bg); border: 1px solid var(--line); border-radius: 5px; padding: 8px 12px; font-size: 0.8rem; }
+  .stat b { color: var(--accent-ink); background: var(--accent-soft); padding: 0 4px; border-radius: 3px; }
+
+  .transform-card { display: flex; flex-direction: column; gap: 10px; }
+
+  footer { margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 0.8rem; }
+
+  @media (max-width: 480px) {
+    .media-grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<nav class="navbar">
+  <span class="brand">A1 &middot; PyTorch3D</span>
+  <a href="#s1">1&nbsp;Cameras</a>
+  <a href="#s2">2&nbsp;Meshes</a>
+  <a href="#s3">3&nbsp;Retexture</a>
+  <a href="#s4">4&nbsp;Transforms</a>
+  <a href="#s5">5&nbsp;Representations</a>
+  <a href="#s6">6&nbsp;Fun</a>
+  <a href="#s7">7&nbsp;Sampling</a>
+</nav>
+
+<div class="wrap">
+  <header class="title-block">
+    <p class="kicker">16&#8209;825 &middot; Learning for 3D Vision &middot; Assignment 1</p>
+    <h1>Rendering Basics with PyTorch3D</h1>
+    <p class="subtitle">Cameras, hand-built meshes, point clouds, and implicit surfaces. Every result below is a 360&deg; turntable gif rather than a single still, since a moving view is what actually proves the geometry (and the camera math) is right.</p>
+    <div class="meta">
+      <span><b>Andrew ID</b> farnazaa</span>
+      <span><b>Renderer</b> PyTorch3D 0.7.8 (CPU build)</span>
+      <span><b>Base</b> 90 pts</span>
+      <span><b>Extra credit</b> +20 pts</span>
+    </div>
+  </header>
+
+  <section id="s1">
+    <p class="eyebrow">1 &middot; Practicing with Cameras</p>
+    <h2>360&deg; renders &amp; the dolly zoom</h2>
+    <p class="points">1.1 &middot; 5 pts, 1.2 &middot; 10 pts</p>
+    <p class="desc">A full turntable of the cow establishes the camera rig reused for every later section: <code>look_at_view_transform(dist, elev, azim)</code> swept over azimuth. The dolly zoom keeps the cow's apparent height constant while the focal length changes, by solving <code>distance&nbsp;=&nbsp;half_height&nbsp;/&nbsp;tan(fov/2)</code> from the mesh's own bounding box each frame, so only the ground plane behind it visibly warps.</p>
+    <div class="media-grid cols-2">
+      <figure>
+        <img src="images/cow_360.gif" alt="360 degree turntable of the cow mesh">
+        <figcaption><b>1.1</b> Cow, 36-frame turntable, dist 3, elev 0.</figcaption>
+      </figure>
+      <figure>
+        <img src="images/dolly.gif" alt="Dolly zoom effect on the cow on a plane">
+        <figcaption><b>1.2</b> Dolly zoom: fov 5&deg;&rarr;120&deg;, distance solved per-frame so the cow's height stays fixed.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="s2">
+    <p class="eyebrow">2 &middot; Practicing with Meshes</p>
+    <h2>Hand-built tetrahedron &amp; cube</h2>
+    <p class="points">2.1 &middot; 5 pts, 2.2 &middot; 5 pts</p>
+    <p class="desc">Both shapes are defined purely by hand, using explicit vertex coordinates and triangle index lists, with the winding order of every face checked via the cross-product/right-hand-rule so <code>HardPhongShader</code> lights each one correctly (an inward-pointing normal looks wrong even though the triangle still renders).</p>
+    <div class="media-grid cols-2">
+      <figure>
+        <img src="images/tetrahedron.gif" alt="360 degree turntable of a hand-built tetrahedron">
+        <figcaption>Tetrahedron, built from 4 alternating corners of a cube: <span class="stat"><b>4</b> vertices, <b>4</b> faces</span></figcaption>
+      </figure>
+      <figure>
+        <img src="images/cube.gif" alt="360 degree turntable of a hand-built cube">
+        <figcaption>Cube, using 2 triangles per square face: <span class="stat"><b>8</b> vertices, <b>12</b> faces</span></figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="s3">
+    <p class="eyebrow">3 &middot; Re-texturing a Mesh</p>
+    <h2>Front-to-back color gradient</h2>
+    <p class="points">10 pts</p>
+    <p class="desc">Per-vertex color is linearly interpolated along z: <code>alpha&nbsp;=&nbsp;(z&nbsp;&minus;&nbsp;z_min)/(z_max&nbsp;&minus;&nbsp;z_min)</code>, blending from <b>color1</b> at the front (min z) to <b>color2</b> at the back (max z).</p>
+    <div class="stat-row">
+      <span class="stat">color1 = <b>(0, 0, 1)</b> blue, front</span>
+      <span class="stat">color2 = <b>(1, 0, 0)</b> red, back</span>
+    </div>
+    <div class="media-grid">
+      <figure>
+        <img src="images/cow_retextured.gif" alt="Cow mesh retextured with a blue-to-red gradient">
+        <figcaption>Blue&rarr;red gradient, 360&deg; turntable.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="s4">
+    <p class="eyebrow">4 &middot; Camera Transformations</p>
+    <h2>Solving (R_relative, T_relative)</h2>
+    <p class="points">10 pts</p>
+    <p class="desc">Starting from the default camera (R&#8320;&nbsp;=&nbsp;I, T&#8320;&nbsp;=&nbsp;(0,0,3)), each target view is reproduced by a relative rotation/translation composed as <code>R&nbsp;=&nbsp;R_relative&nbsp;@&nbsp;R&#8320;</code>, <code>T&nbsp;=&nbsp;R_relative&nbsp;@&nbsp;T&#8320;&nbsp;+&nbsp;T_relative</code>. Each one was solved by reasoning about the axis arrows in the target image, then confirmed by rendering and comparing pixel-for-pixel.</p>
+    <div class="media-grid cols-2">
+      <figure class="transform-card">
+        <img src="images/transform1.jpg" alt="Transform 1: camera rolled 90 degrees">
+        <figcaption>
+          <b>1 &middot; Roll.</b> The camera doesn't move at all. <code>T</code> stays exactly at the default <code>(0,0,3)</code>. Only its orientation changes: it rotates 90&deg; about its own line of sight, the axis pointing straight out of the lens toward the cow. That's exactly like tilting a photograph in-plane: nothing about depth or distance changes, so the cow appears to have fallen onto its side even though the camera is looking at the exact same view, just rotated.
+          <div class="matrix"><span class="name">R_rel</span>=[[0,1,0],[-1,0,0],[0,0,1]]
+<span class="name">T_rel</span>=(0,0,0)</div>
+        </figcaption>
+      </figure>
+      <figure class="transform-card">
+        <img src="images/transform2.jpg" alt="Transform 2: camera orbited to the side">
+        <figcaption>
+          <b>2 &middot; Orbit.</b> The camera genuinely moves through space this time: it swings 90&deg; around the world's vertical (Y) axis, ending up beside the cow instead of in front of it, while staying the same 3 units away throughout. Because the rotation isn't identity, it also redirects where the default position <code>(0,0,3)</code> would have landed, so <code>T_relative</code> has to correct for that redirection on top of specifying the new camera position. That's why its value looks less clean than the other three.
+          <div class="matrix"><span class="name">R_rel</span>=[[0,0,1],[0,1,0],[-1,0,0]]
+<span class="name">T_rel</span>=(-3,0,3)</div>
+        </figcaption>
+      </figure>
+      <figure class="transform-card">
+        <img src="images/transform3.jpg" alt="Transform 3: camera pushed back">
+        <figcaption>
+          <b>3 &middot; Push back.</b> No rotation at all. The camera keeps looking at the cow from exactly the same angle. The only change is a translation straight back along the camera's own line of sight, increasing its distance from 3 units to 5. Since the field of view stays fixed while distance grows, the cow occupies a smaller fraction of the frame: the classic "zoom out," with no reorientation involved.
+          <div class="matrix"><span class="name">R_rel</span>=I
+<span class="name">T_rel</span>=(0,0,2)</div>
+        </figcaption>
+      </figure>
+      <figure class="transform-card">
+        <img src="images/transform4.jpg" alt="Transform 4: camera slid sideways">
+        <figcaption>
+          <b>4 &middot; Slide.</b> Also no rotation. The camera keeps the same orientation and distance; it just slides sideways along the world's X axis. Since the cow stays fixed at the origin, sliding the camera to one side makes the cow appear to shift the opposite way within the frame, the same effect as watching a stationary object glide past while looking out a moving car window.
+          <div class="matrix"><span class="name">R_rel</span>=I
+<span class="name">T_rel</span>=(0.5,0,0)</div>
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="s5">
+    <p class="eyebrow">5 &middot; Rendering Generic 3D Representations</p>
+    <h2>Point clouds &amp; implicit surfaces</h2>
+    <p class="points">5.1 &middot; 10 pts, 5.2 &middot; 10+5 pts, 5.3 &middot; 15+5 pts</p>
+
+    <h3 style="font-size:1.05rem;margin:0 0 8px;">5.1 RGB-D point clouds</h3>
+    <p class="desc">Two RGB-D captures of the same plant are unprojected into world space with <code>unproject_depth_image</code>, then rendered alone and as a merged union. The dataset's world coordinates treat &minus;Y as "up" (opposite PyTorch3D's default), so the turntable camera's <code>up</code> vector is flipped to keep the plant right-side up.</p>
+    <div class="media-grid">
+      <figure>
+        <img src="images/plant_point_clouds.gif" alt="Three plant point clouds side by side: image 1, image 2, and their union">
+        <figcaption>Left&rarr;right: image 1 alone, image 2 alone, the union. The union fills gaps where either single view was occluded.</figcaption>
+      </figure>
+    </div>
+
+    <h3 style="font-size:1.05rem;margin:28px 0 8px;">5.2 Parametric functions</h3>
+    <p class="desc">A torus sampled directly from its parametric equation, colored by tube angle so the hole reads clearly at a tilted elevation. The bonus object reuses the same tube cross-section, swept along a helical path instead of closing into a loop.</p>
+    <div class="media-grid cols-2">
+      <figure><img src="images/torus.gif" alt="360 degree turntable of a parametric torus point cloud"><figcaption>Torus point cloud (required)</figcaption></figure>
+      <figure><img src="images/spring.gif" alt="360 degree turntable of a parametric spring point cloud"><figcaption>Spring / coil <span class="tag">bonus</span></figcaption></figure>
+    </div>
+
+    <h3 style="font-size:1.05rem;margin:28px 0 8px;">5.3 Implicit surfaces</h3>
+    <p class="desc">Both are the zero level-set of <code>F(x,y,z)</code>, discretized on a voxel grid and meshed with marching cubes. Torus: <code>(&radic;(x&sup2;+y&sup2;) &minus; R)&sup2; + z&sup2; &minus; r&sup2;</code>. The bonus object blends three implicit spheres with an inverse-square falloff ("metaballs") so their surfaces merge smoothly instead of intersecting.</p>
+    <div class="media-grid cols-2">
+      <figure><img src="images/torus_mesh.gif" alt="360 degree turntable of an implicit torus mesh"><figcaption>Torus mesh (required)</figcaption></figure>
+      <figure><img src="images/metaballs.gif" alt="360 degree turntable of a metaballs blob mesh"><figcaption>Metaballs blob <span class="tag">bonus</span></figcaption></figure>
+    </div>
+
+    <h3 style="font-size:1.05rem;margin:28px 0 8px;">Mesh vs. point cloud</h3>
+    <p class="desc">
+      <b>Rendering quality:</b> the mesh is watertight with real surface normals, so it shades smoothly and reads as solid from any distance; the point cloud is only ever a sampled approximation and thins out under zoom or at grazing angles.
+      <b>Speed &amp; memory:</b> marching cubes pays a fixed voxelization cost up front (64&sup3; samples here) for one fixed mesh; a point cloud's cost scales directly with however many points you draw, cheaper for a quick preview but needing far more points to match the mesh's apparent density.
+      <b>Ease of use:</b> a point cloud comes straight from sampling <code>F</code> (or a depth camera) with no reconstruction step; a mesh needs connectivity (marching cubes here) and is sensitive to voxel resolution. Too coarse, and thin features like the torus's tube can vanish between samples.
+    </p>
+  </section>
+
+  <section id="s6">
+    <p class="eyebrow">6 &middot; Do Something Fun</p>
+    <h2>A Menger sponge, grown from the cube</h2>
+    <p class="points" style="color:var(--accent);">extra credit &middot; 10 pts</p>
+    <p class="desc">The same cube mesh from Part 2.2 is recursively instanced: each round keeps the 20 corner-and-edge sub-cubes of a 3&times;3&times;3 split and discards the face-center and volume-center cubes, and every surviving sub-cube is merged into one <code>Meshes</code> object.</p>
+    <div class="media-grid">
+      <figure>
+        <img src="images/fun_menger_sponge.gif" alt="360 degree turntable of a Menger sponge fractal built from cubes">
+        <figcaption>Menger sponge, level 2: <span class="stat"><b>400</b> cubes, <b>3,200</b> vertices, <b>4,800</b> faces</span></figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="s7">
+    <p class="eyebrow">7 &middot; Sampling Points on Meshes</p>
+    <h2>Area-weighted stratified sampling</h2>
+    <p class="points" style="color:var(--accent);">extra credit &middot; 10 pts</p>
+    <p class="desc">Each triangle is picked with probability proportional to its own area, then a point is placed at a uniformly random barycentric coordinate inside it. Sampling vertices directly would instead bias toward wherever the mesh happens to be tessellated finely.</p>
+    <div class="media-grid">
+      <figure>
+        <img src="images/sampled_cow.gif" alt="Original cow mesh next to point clouds sampled at 10, 100, 1000, and 10000 points">
+        <figcaption>Left to right: original mesh, then <b>10</b>, <b>100</b>, <b>1,000</b>, <b>10,000</b> sampled points, converging on the mesh's own silhouette.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <footer>
+    Built with PyTorch3D 0.7.8 (CPU build) &middot; code in <code>starter/</code> &middot; renders in <code>images/</code>.
+  </footer>
+</div>
+</body>
+</html>

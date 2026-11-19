@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>16-825 Assignment 5</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d1d9e0;
+    --panel: #f6f8fa; --accent: #0969da; --pass: #1a7f37; --fail: #cf222e; --code-bg: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #3d444d;
+      --panel: #151b23; --accent: #4493f8; --pass: #3fb950; --fail: #f85149; --code-bg: #151b23;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 2rem; margin: 0 0 4px; }
+  h2 { font-size: 1.5rem; margin: 48px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1.2rem; margin: 32px 0 8px; }
+  h4 { font-size: 1rem; margin: 20px 0 6px; }
+  p, li { max-width: 80ch; }
+  a { color: var(--accent); }
+  .subtitle { color: var(--muted); margin: 0; }
+  nav { margin: 20px 0 0; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  nav ul { margin: 4px 0 0; padding-left: 20px; }
+  code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em;
+         background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+        padding: 12px 14px; overflow-x: auto; font-size: 0.85rem; line-height: 1.45; }
+  pre code { background: none; padding: 0; }
+  figure { margin: 0; }
+  /* GIFs are rendered on a white background, so keep them on white in dark mode too */
+  figure img { display: block; width: 100%; max-width: 256px; height: auto; background: #fff;
+               border: 1px solid var(--border); border-radius: 6px; }
+  figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; margin: 12px 0 20px; }
+  .pair { display: grid; grid-template-columns: 110px repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;
+          align-items: center; margin: 10px 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
+  .pair .label { font-size: 0.9rem; }
+  .pair .label strong { display: block; font-size: 1rem; }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; margin: 8px 0 16px; }
+  th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+  th { background: var(--panel); }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  tr.base td { font-weight: 600; }
+  .ok { color: var(--pass); font-weight: 600; }
+  .bad { color: var(--fail); font-weight: 600; }
+  .callout { padding: 10px 14px; background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+             border-radius: 6px; margin: 12px 0; }
+  .legend span { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin: 0 4px -1px 10px; border: 1px solid var(--border); }
+  @media (max-width: 520px) { .pair { grid-template-columns: 1fr 1fr; } .pair .label { grid-column: 1 / -1; } }
+</style>
+</head>
+<body>
+<main>
+
+<h1>16-825 Assignment 5: Point Cloud Classification and Segmentation</h1>
+<p class="subtitle">Farnaz Alam Ahmed</p>
+
+<nav>
+  <strong>Contents</strong>
+  <ul>
+    <li><a href="#q1">Q1. Classification Model</a></li>
+    <li><a href="#q2">Q2. Segmentation Model</a></li>
+    <li><a href="#q3">Q3. Robustness Analysis</a>
+      <ul>
+        <li><a href="#q3-points">Experiment 1: Number of points</a></li>
+        <li><a href="#q3-rot">Experiment 2: Rotation</a></li>
+      </ul>
+    </li>
+    <li><a href="#q4">Q4. Bonus: Locality (DGCNN)</a></li>
+  </ul>
+</nav>
+
+<!-- ================================================================== -->
+<h2 id="q1">Q1. Classification Model</h2>
+
+<p>
+  <strong>Model.</strong> A vanilla PointNet (no T-Nets). A shared per-point MLP
+  (<code>Conv1d</code> with kernel size 1: 3&rarr;64&rarr;64&rarr;64&rarr;128&rarr;1024, each followed by BatchNorm and ReLU)
+  maps every point to a 1024-D feature. A max-pool over the points gives one order-invariant global feature per object,
+  and an MLP head (1024&rarr;512&rarr;256&rarr;3, BatchNorm, ReLU, dropout 0.3) outputs the class scores.
+  Trained for 50 epochs with Adam (lr 0.001, batch 32) on all 10,000 points per object.
+</p>
+
+<div class="callout"><strong>Test accuracy: 97.17%</strong> (926 / 953 test objects correct; best checkpoint at epoch 25).</div>
+
+<h3>Random test samples</h3>
+<p>Five random test objects (fixed seed) with their predicted class. All five are classified correctly.</p>
+<div class="grid">
+  <figure><img src="data/q1_sample605_true-chair_pred-chair.gif" alt="Test object 605"><figcaption>#605 &middot; true: chair &middot; pred: <span class="ok">chair</span></figcaption></figure>
+  <figure><img src="data/q1_sample486_true-chair_pred-chair.gif" alt="Test object 486"><figcaption>#486 &middot; true: chair &middot; pred: <span class="ok">chair</span></figcaption></figure>
+  <figure><img src="data/q1_sample256_true-chair_pred-chair.gif" alt="Test object 256"><figcaption>#256 &middot; true: chair &middot; pred: <span class="ok">chair</span></figcaption></figure>
+  <figure><img src="data/q1_sample293_true-chair_pred-chair.gif" alt="Test object 293"><figcaption>#293 &middot; true: chair &middot; pred: <span class="ok">chair</span></figcaption></figure>
+  <figure><img src="data/q1_sample807_true-lamp_pred-lamp.gif" alt="Test object 807"><figcaption>#807 &middot; true: lamp &middot; pred: <span class="ok">lamp</span></figcaption></figure>
+</div>
+
+<h3>Failure cases</h3>
+<div class="table-wrap"><table>
+  <thead><tr><th>True class</th><th>Misclassified</th><th>Predicted as</th></tr></thead>
+  <tbody>
+    <tr><td>Chair</td><td class="num">0 / 617</td><td>&ndash;</td></tr>
+    <tr><td>Vase</td><td class="num">9 / 102</td><td>lamp &times;7, chair &times;2</td></tr>
+    <tr><td>Lamp</td><td class="num">18 / 234</td><td>vase &times;17, chair &times;1</td></tr>
+  </tbody>
+</table></div>
+<div class="grid">
+  <figure><img src="data/q1_fail619_true-vase_pred-lamp.gif" alt="Vase 619 predicted as lamp"><figcaption>#619 &middot; true: vase &middot; pred: <span class="bad">lamp</span></figcaption></figure>
+  <figure><img src="data/q1_fail726_true-lamp_pred-vase.gif" alt="Lamp 726 predicted as vase"><figcaption>#726 &middot; true: lamp &middot; pred: <span class="bad">vase</span></figcaption></figure>
+  <figure><img src="data/pts100_fail35_true-chair_pred-lamp.gif" alt="Chair 35 predicted as lamp with 100 points"><figcaption>#35 (100 points, from Q3) &middot; true: chair &middot; pred: <span class="bad">lamp</span></figcaption></figure>
+</div>
+<p><strong>Interpretation.</strong></p>
+<ul>
+  <li><strong>Vase &rarr; lamp (#619):</strong> this vase holds flowers. The long thin stem with a bloom on top looks exactly like a lamp's
+      pole and shade, and the narrow vase body resembles a lamp base. The model detects "thin vertical rod with something on top", which is a strong lamp cue.</li>
+  <li><strong>Lamp &rarr; vase (#726):</strong> this lamp has a large, round, bulbous base that makes up most of its points, with only a small shade on top.
+      The global max-pooled feature is dominated by the round-body pattern typical of vases. Most lamp errors (17 of 18) are of this kind.</li>
+  <li><strong>Chair:</strong> no chair was misclassified at full resolution. Chairs are the largest class (617 of 953 test objects) and have a distinctive
+      structure (seat, back, legs). To still show a chair failure, #35 comes from the Q3 run with only 100 points: with so few points, the thin legs and
+      the tall back are barely sampled, and the remaining sparse vertical structure looks like a lamp.</li>
+</ul>
+
+<!-- ================================================================== -->
+<h2 id="q2">Q2. Segmentation Model</h2>
+
+<p>
+  <strong>Model.</strong> PointNet segmentation network. A local MLP (3&rarr;64&rarr;64) gives a 64-D per-point feature. A second MLP
+  (64&rarr;64&rarr;128&rarr;1024) followed by a max-pool gives a 1024-D global feature for each chair. The global feature is copied to every point and
+  concatenated with that point's local feature (64 + 1024 = 1088), and a per-point head (1088&rarr;512&rarr;256&rarr;128&rarr;6) outputs scores for the
+  6 part classes. Trained for 30 epochs (Adam, lr 0.001, batch 32) on an AWS g5.xlarge GPU.
+</p>
+
+<div class="callout"><strong>Test accuracy: 87.65%</strong> of all points labelled correctly (617 test chairs; best checkpoint at epoch 25).</div>
+
+<p class="legend">Colours:
+  <span style="background:#00ffff"></span>back
+  <span style="background:#ff0000"></span>seat
+  <span style="background:#0000ff"></span>legs
+  <span style="background:#ffff00"></span>arms
+  <span style="background:#ff00ff"></span>part 1
+  <span style="background:#ffffff"></span>part 0 (white, invisible on the white background)
+</p>
+
+<div class="pair">
+  <div class="label"><strong>#471</strong>good &middot; <span class="ok">99.25%</span></div>
+  <figure><img src="data/gt_good1.gif" alt="Chair 471 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_good1.gif" alt="Chair 471 prediction"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>#434</strong>good &middot; <span class="ok">99.20%</span></div>
+  <figure><img src="data/gt_good2.gif" alt="Chair 434 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_good2.gif" alt="Chair 434 prediction"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>#0</strong>typical &middot; 91.81%</div>
+  <figure><img src="data/gt_obj0.gif" alt="Chair 0 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_obj0.gif" alt="Chair 0 prediction"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>#351</strong>bad &middot; <span class="bad">42.27%</span></div>
+  <figure><img src="data/gt_bad1.gif" alt="Chair 351 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_bad1.gif" alt="Chair 351 prediction"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>#577</strong>bad &middot; <span class="bad">44.14%</span></div>
+  <figure><img src="data/gt_bad2.gif" alt="Chair 577 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_bad2.gif" alt="Chair 577 prediction"><figcaption>Prediction</figcaption></figure>
+</div>
+
+<p><strong>Interpretation.</strong>
+  The model segments ordinary chairs almost perfectly (&gt;99% on #471 and #434): thin, clearly separated legs, a flat seat and a distinct back,
+  which is the most common shape in the training data. On a typical chair (#0, 91.8%), the errors are concentrated at the boundaries between parts,
+  e.g. where the legs meet the seat. The two worst chairs are unusual, legless designs: #351 is a closed tub/barrel chair, and #577 is an upholstered
+  armchair with a solid base. In both, the model labels the entire lower half as <em>legs</em>, whereas the ground truth labels it as seat/back/arms.
+  This shows that PointNet relies heavily on a point's <em>height</em> within the object. Because each point is processed independently and only
+  combined with one global feature, the model cannot see that the bottom of these chairs is a solid surface rather than thin rods.
+</p>
+
+<!-- ================================================================== -->
+<h2 id="q3">Q3. Robustness Analysis</h2>
+<p>Both experiments use the trained Q1 and Q2 models <em>without retraining</em>. Only the test inputs are changed
+  (<code>--num_points</code> and a new <code>--rot_deg</code> option in <code>eval_cls.py</code> / <code>eval_seg.py</code>).
+  The bold rows are the Q1/Q2 baseline.</p>
+
+<h3 id="q3-points">Experiment 1: Number of points per object</h3>
+<p><strong>Procedure.</strong> For each test object, a random subset of N &isin; {10000, 5000, 1000, 500, 100, 50, 10} points is kept
+  (with the matching per-point labels for segmentation), and both models are evaluated on this subset.</p>
+
+<div class="table-wrap"><table>
+  <thead><tr><th>Points per object</th><th>Classification acc.</th><th>Segmentation acc.</th></tr></thead>
+  <tbody>
+    <tr class="base"><td>10000 (Q1/Q2 baseline)</td><td class="num">97.17%</td><td class="num">87.65%</td></tr>
+    <tr><td>5000</td><td class="num">97.17%</td><td class="num">87.80%</td></tr>
+    <tr><td>1000</td><td class="num">97.27%</td><td class="num">88.05%</td></tr>
+    <tr><td>500</td><td class="num">96.85%</td><td class="num">87.65%</td></tr>
+    <tr><td>100</td><td class="num">94.33%</td><td class="num">82.17%</td></tr>
+    <tr><td>50</td><td class="num">87.09%</td><td class="num">77.46%</td></tr>
+    <tr><td>10</td><td class="num">26.65%</td><td class="num">68.57%</td></tr>
+  </tbody>
+</table></div>
+
+<h4>Classification: the same objects with 10,000 vs 100 points</h4>
+<div class="grid">
+  <figure><img src="data/q1_sample605_true-chair_pred-chair.gif" alt="Object 605 with 10000 points"><figcaption>#605 &middot; 10000 pts &middot; pred <span class="ok">chair</span></figcaption></figure>
+  <figure><img src="data/pts100_sample605_true-chair_pred-chair.gif" alt="Object 605 with 100 points"><figcaption>#605 &middot; 100 pts &middot; pred <span class="ok">chair</span></figcaption></figure>
+  <figure><img src="data/q1_sample807_true-lamp_pred-lamp.gif" alt="Object 807 with 10000 points"><figcaption>#807 &middot; 10000 pts &middot; pred <span class="ok">lamp</span></figcaption></figure>
+  <figure><img src="data/pts100_sample807_true-lamp_pred-lamp.gif" alt="Object 807 with 100 points"><figcaption>#807 &middot; 100 pts &middot; pred <span class="ok">lamp</span></figcaption></figure>
+  <figure><img src="data/pts100_fail619_true-vase_pred-lamp.gif" alt="Vase 619 with 100 points"><figcaption>#619 &middot; 100 pts &middot; true vase, pred <span class="bad">lamp</span></figcaption></figure>
+</div>
+
+<h4>Segmentation: chair #0 as the number of points decreases</h4>
+<div class="pair">
+  <div class="label"><strong>10000 pts</strong>baseline</div>
+  <figure><img src="data/gt_pts10000.gif" alt="Chair 0 ground truth, 10000 points"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_pts10000.gif" alt="Chair 0 prediction, 10000 points"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>500 pts</strong></div>
+  <figure><img src="data/gt_pts500.gif" alt="Chair 0 ground truth, 500 points"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_pts500.gif" alt="Chair 0 prediction, 500 points"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>100 pts</strong></div>
+  <figure><img src="data/gt_pts100.gif" alt="Chair 0 ground truth, 100 points"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_pts100.gif" alt="Chair 0 prediction, 100 points"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>50 pts</strong></div>
+  <figure><img src="data/gt_pts50.gif" alt="Chair 0 ground truth, 50 points"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_pts50.gif" alt="Chair 0 prediction, 50 points"><figcaption>Prediction</figcaption></figure>
+</div>
+
+<p><strong>Interpretation.</strong>
+  Both models are very robust to sparsity: accuracy is essentially unchanged down to 500 points (5% of the training resolution) and only drops
+  noticeably below 100 points. This is a direct consequence of the max-pool. The global feature is determined by a small set of "critical points"
+  that give the maximum response for each feature, and a random subset of a few hundred points still contains enough of them to describe the shape.
+  At 10 points, the shape is essentially gone: classification collapses to 26.7%, worse than always predicting "chair". Segmentation degrades more
+  gracefully (68.6%), because a point's height alone is already a strong cue for which part it belongs to (legs low, back high).
+</p>
+
+<h3 id="q3-rot">Experiment 2: Rotating the input</h3>
+<p><strong>Procedure.</strong> Every test point cloud is rotated about the x-axis by &theta; &isin; {0&deg;, 15&deg;, 30&deg;, 45&deg;, 60&deg;, 90&deg;, 180&deg;},
+  i.e. tilted forwards/backwards (the y-axis points up in this data). Labels are unchanged. All 10,000 points are used.</p>
+
+<div class="table-wrap"><table>
+  <thead><tr><th>Rotation about x</th><th>Classification acc.</th><th>Segmentation acc.</th></tr></thead>
+  <tbody>
+    <tr class="base"><td>0&deg; (Q1/Q2 baseline)</td><td class="num">97.17%</td><td class="num">87.65%</td></tr>
+    <tr><td>15&deg;</td><td class="num">94.54%</td><td class="num">84.88%</td></tr>
+    <tr><td>30&deg;</td><td class="num">83.42%</td><td class="num">75.24%</td></tr>
+    <tr><td>45&deg;</td><td class="num">54.04%</td><td class="num">63.05%</td></tr>
+    <tr><td>60&deg;</td><td class="num">35.68%</td><td class="num">44.31%</td></tr>
+    <tr><td>90&deg;</td><td class="num">21.20%</td><td class="num">31.36%</td></tr>
+    <tr><td>180&deg;</td><td class="num">62.43%</td><td class="num">37.39%</td></tr>
+  </tbody>
+</table></div>
+
+<h4>Classification: the same objects at 0&deg;, 45&deg; and 90&deg;</h4>
+<div class="pair">
+  <div class="label"><strong>#486</strong>chair</div>
+  <figure><img src="data/q1_sample486_true-chair_pred-chair.gif" alt="Chair 486 at 0 degrees"><figcaption>0&deg; &middot; pred <span class="ok">chair</span></figcaption></figure>
+  <figure><img src="data/rot45_sample486_true-chair_pred-lamp.gif" alt="Chair 486 at 45 degrees"><figcaption>45&deg; &middot; pred <span class="bad">lamp</span></figcaption></figure>
+  <figure><img src="data/rot90_sample486_true-chair_pred-vase.gif" alt="Chair 486 at 90 degrees"><figcaption>90&deg; &middot; pred <span class="bad">vase</span></figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>#605</strong>chair</div>
+  <figure><img src="data/q1_sample605_true-chair_pred-chair.gif" alt="Chair 605 at 0 degrees"><figcaption>0&deg; &middot; pred <span class="ok">chair</span></figcaption></figure>
+  <figure><img src="data/rot45_sample605_true-chair_pred-chair.gif" alt="Chair 605 at 45 degrees"><figcaption>45&deg; &middot; pred <span class="ok">chair</span></figcaption></figure>
+  <figure><img src="data/rot90_sample605_true-chair_pred-vase.gif" alt="Chair 605 at 90 degrees"><figcaption>90&deg; &middot; pred <span class="bad">vase</span></figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>#807</strong>lamp</div>
+  <figure><img src="data/q1_sample807_true-lamp_pred-lamp.gif" alt="Lamp 807 at 0 degrees"><figcaption>0&deg; &middot; pred <span class="ok">lamp</span></figcaption></figure>
+  <figure><img src="data/rot45_sample807_true-lamp_pred-vase.gif" alt="Lamp 807 at 45 degrees"><figcaption>45&deg; &middot; pred <span class="bad">vase</span></figcaption></figure>
+  <figure><img src="data/rot90_sample807_true-lamp_pred-vase.gif" alt="Lamp 807 at 90 degrees"><figcaption>90&deg; &middot; pred <span class="bad">vase</span></figcaption></figure>
+</div>
+
+<h4>Segmentation: chair #0 under rotation</h4>
+<div class="pair">
+  <div class="label"><strong>0&deg;</strong>baseline</div>
+  <figure><img src="data/gt_rot0.gif" alt="Chair 0 ground truth, 0 degrees"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_rot0.gif" alt="Chair 0 prediction, 0 degrees"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>30&deg;</strong></div>
+  <figure><img src="data/gt_rot30.gif" alt="Chair 0 ground truth, 30 degrees"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_rot30.gif" alt="Chair 0 prediction, 30 degrees"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>90&deg;</strong></div>
+  <figure><img src="data/gt_rot90.gif" alt="Chair 0 ground truth, 90 degrees"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_rot90.gif" alt="Chair 0 prediction, 90 degrees"><figcaption>Prediction</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>180&deg;</strong></div>
+  <figure><img src="data/gt_rot180.gif" alt="Chair 0 ground truth, 180 degrees"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_rot180.gif" alt="Chair 0 prediction, 180 degrees"><figcaption>Prediction</figcaption></figure>
+</div>
+
+<p><strong>Interpretation.</strong>
+  Unlike sparsity, rotation hurts both models badly. Accuracy is still reasonable at 15&deg; but falls quickly beyond 30&deg;, and at 90&deg; the
+  classifier is at 21% and calls almost everything a vase (a chair lying on its back has a compact, box-like outline). Without T-Nets or rotation
+  augmentation, PointNet has no mechanism for rotation invariance. Every training object was upright, so the learned features encode upright patterns
+  such as "horizontal surface at mid-height" (seat) or "thin vertical rod" (lamp pole). 180&deg; is better than 90&deg; for classification (62%)
+  because many vases and lamps are roughly symmetric top-to-bottom, but segmentation stays poor (37%): parts are recognised largely by height, and upside
+  down the legs are at the top. Rotation augmentation during training, or a T-Net that predicts a canonical alignment, would be the natural fixes.
+</p>
+
+<!-- ================================================================== -->
+<h2 id="q4">Q4. Bonus: Locality with DGCNN</h2>
+
+<p>
+  <strong>Model.</strong> I implemented <strong>DGCNN</strong> (Dynamic Graph CNN, Wang et al. 2019). Its building block, <em>EdgeConv</em>, adds the
+  locality that PointNet lacks:
+</p>
+<ol>
+  <li>For each point <em>x<sub>i</sub></em>, find its <em>k</em> = 20 nearest neighbours <em>x<sub>j</sub></em>.</li>
+  <li>Build an edge feature for each neighbour: [<em>x<sub>i</sub></em>, <em>x<sub>j</sub></em> &minus; <em>x<sub>i</sub></em>].
+      The relative offset describes the local surface (flat, curved, rod-like) around the point.</li>
+  <li>Apply a shared MLP to every edge (<code>Conv2d</code> 1&times;1 + BatchNorm + LeakyReLU), then <strong>max-pool over the k neighbours</strong>.</li>
+  <li>Repeat. After the first layer the neighbour graph is rebuilt in <em>feature space</em> (hence "dynamic"), so points that look alike, e.g. the
+      tips of different legs, can become neighbours even when they are far apart.</li>
+</ol>
+<p>
+  <strong>Classification:</strong> 4 EdgeConv layers (64, 64, 128, 256) &rarr; concatenate (512) &rarr; 1024 &rarr; global max-pool &rarr; MLP
+  (512, 256, dropout 0.5) &rarr; 3 classes. <strong>Segmentation:</strong> 3 EdgeConv layers (64 each) &rarr; concatenated local feature (192) +
+  global max-pooled feature (1024) copied to every point &rarr; per-point head (256, 256, 128) &rarr; 6 parts.
+  The kNN is implemented in plain PyTorch. Because the pairwise-distance matrix is N&times;N, both models are trained and tested on a random 1,024 points
+  per object (a new random subset every batch). Trained for 40 epochs (cls) and 50 epochs (seg) with Adam, lr 0.001, batch 32.
+</p>
+
+<h3>Test accuracy compared with Q1 and Q2</h3>
+<div class="table-wrap"><table>
+  <thead><tr><th>Model</th><th>Points</th><th>Classification acc.</th><th>Segmentation acc.</th></tr></thead>
+  <tbody>
+    <tr><td>PointNet (Q1 / Q2)</td><td class="num">10000</td><td class="num">97.17%</td><td class="num">87.65%</td></tr>
+    <tr><td>PointNet (Q3, same input size as DGCNN)</td><td class="num">1024</td><td class="num">97.27%</td><td class="num">88.05%</td></tr>
+    <tr class="base"><td>DGCNN (Q4)</td><td class="num">1024</td><td class="num"><span class="ok">98.32%</span></td><td class="num"><span class="ok">90.17%</span></td></tr>
+  </tbody>
+</table></div>
+<p>DGCNN makes 16 classification mistakes instead of 27 (lamp &rarr; vase errors drop from 17 to 5) and improves segmentation by about 2 points
+  at the same input size.</p>
+
+<h3>Classification visualisations</h3>
+<p>The same five random objects as Q1 are all still classified correctly. The remaining failures:</p>
+<div class="grid">
+  <figure><img src="data/q4dgcnn_fail543_true-chair_pred-lamp.gif" alt="Chair 543 predicted as lamp by DGCNN"><figcaption>#543 &middot; true: chair &middot; pred: <span class="bad">lamp</span></figcaption></figure>
+  <figure><img src="data/q4dgcnn_fail619_true-vase_pred-lamp.gif" alt="Vase 619 predicted as lamp by DGCNN"><figcaption>#619 &middot; true: vase &middot; pred: <span class="bad">lamp</span> (same as Q1)</figcaption></figure>
+  <figure><img src="data/q4dgcnn_fail750_true-lamp_pred-vase.gif" alt="Lamp 750 predicted as vase by DGCNN"><figcaption>#750 &middot; true: lamp &middot; pred: <span class="bad">vase</span></figcaption></figure>
+  <figure><img src="data/q1_fail726_true-lamp_pred-vase.gif" alt="Lamp 726"><figcaption>#726 (Q1 failure) &middot; DGCNN: <span class="ok">lamp</span> (fixed)</figcaption></figure>
+</div>
+<p>The bulbous-base lamp #726 that PointNet called a vase is now correct, likely because local features can pick up the thin connector between
+  base and shade, which a per-point model cannot see. The flower vase #619 is still wrong, because its stem and bloom really are locally lamp-like.
+  The single chair error (#543) is a very tall, narrow chair that looks like a pole with a small base.</p>
+
+<h3>Segmentation: the Q2 chairs, PointNet vs DGCNN (both at 1,024 points)</h3>
+<div class="table-wrap"><table>
+  <thead><tr><th>Chair</th><th>PointNet @1024</th><th>DGCNN @1024</th><th>Change</th></tr></thead>
+  <tbody>
+    <tr><td>#0 (typical)</td><td class="num">91.80%</td><td class="num">93.85%</td><td class="num"><span class="ok">+2.1</span></td></tr>
+    <tr><td>#471 (good)</td><td class="num">98.54%</td><td class="num">99.12%</td><td class="num"><span class="ok">+0.6</span></td></tr>
+    <tr><td>#434 (good)</td><td class="num">98.73%</td><td class="num">98.83%</td><td class="num">+0.1</td></tr>
+    <tr><td>#351 (tub chair)</td><td class="num">45.80%</td><td class="num">45.41%</td><td class="num">&minus;0.4</td></tr>
+    <tr class="base"><td>#577 (armchair)</td><td class="num">42.97%</td><td class="num">69.04%</td><td class="num"><span class="ok">+26.1</span></td></tr>
+  </tbody>
+</table></div>
+
+<div class="pair">
+  <div class="label"><strong>#577</strong>armchair</div>
+  <figure><img src="data/gt_q4dgcnn_577.gif" alt="Chair 577 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_q4pointnet_577.gif" alt="Chair 577 PointNet prediction"><figcaption>PointNet &middot; <span class="bad">43.0%</span></figcaption></figure>
+  <figure><img src="data/pred_q4dgcnn_577.gif" alt="Chair 577 DGCNN prediction"><figcaption>DGCNN &middot; <span class="ok">69.0%</span></figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>#0</strong>typical</div>
+  <figure><img src="data/gt_q4dgcnn_0.gif" alt="Chair 0 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_q4pointnet_0.gif" alt="Chair 0 PointNet prediction"><figcaption>PointNet &middot; 91.8%</figcaption></figure>
+  <figure><img src="data/pred_q4dgcnn_0.gif" alt="Chair 0 DGCNN prediction"><figcaption>DGCNN &middot; 93.9%</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>#471</strong>good</div>
+  <figure><img src="data/gt_q4dgcnn_471.gif" alt="Chair 471 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_q4pointnet_471.gif" alt="Chair 471 PointNet prediction"><figcaption>PointNet &middot; 98.5%</figcaption></figure>
+  <figure><img src="data/pred_q4dgcnn_471.gif" alt="Chair 471 DGCNN prediction"><figcaption>DGCNN &middot; 99.1%</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>#434</strong>good</div>
+  <figure><img src="data/gt_q4dgcnn_434.gif" alt="Chair 434 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_q4pointnet_434.gif" alt="Chair 434 PointNet prediction"><figcaption>PointNet &middot; 98.7%</figcaption></figure>
+  <figure><img src="data/pred_q4dgcnn_434.gif" alt="Chair 434 DGCNN prediction"><figcaption>DGCNN &middot; 98.8%</figcaption></figure>
+</div>
+<div class="pair">
+  <div class="label"><strong>#351</strong>tub chair</div>
+  <figure><img src="data/gt_q4dgcnn_351.gif" alt="Chair 351 ground truth"><figcaption>Ground truth</figcaption></figure>
+  <figure><img src="data/pred_q4pointnet_351.gif" alt="Chair 351 PointNet prediction"><figcaption>PointNet &middot; 45.8%</figcaption></figure>
+  <figure><img src="data/pred_q4dgcnn_351.gif" alt="Chair 351 DGCNN prediction"><figcaption>DGCNN &middot; 45.4%</figcaption></figure>
+</div>
+
+<p><strong>Interpretation.</strong>
+  The clearest benefit of locality is on armchair #577. PointNet labelled its whole solid base as <em>legs</em> based on height alone. DGCNN
+  predicts almost no leg points and correctly traces the arms down the sides, because each point's neighbourhood shows a solid surface rather than a thin rod.
+  This raises accuracy from 43% to 69%. On ordinary chairs, DGCNN mainly cleans up the boundaries between parts (+2 points on chair #0). The tub chair #351
+  is still a failure for both models: its body is one continuous curved wall, so local geometry alone does not reveal where the "seat" ends and the
+  "back" begins, and the bottom half is still predicted as legs. Fixing it likely needs more such shapes in the training data rather than only a
+  different architecture.
+</p>
+
+</main>
+</body>
+</html>
